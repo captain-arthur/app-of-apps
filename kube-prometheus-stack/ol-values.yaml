@@ -14,9 +14,15 @@ grafana:
     # -- 서비스 타입을 NodePort로 설정
     type: NodePort
 
-  # -- Grafana 설정 (HTTP 프로토콜 명시)
+  # -- 기본 대시보드 시간대 설정 (KST)
+  defaultDashboardsTimezone: Asia/Seoul
+
+  # -- Grafana 설정 (HTTP 프로토콜 명시 및 시간대 설정)
   grafana.ini:
     server:
       # -- HTTP 프로토콜 사용 명시
       protocol: http
+    # -- 사용자 기본 시간대 설정
+    users:
+      default_theme: dark
 
