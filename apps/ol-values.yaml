@@ -1,0 +1,17 @@
+repoURL: 'https://github.com/kang-jaehoon/tmonkube.git'
+apps:
+# systemplatform project
+# storage
+# monitoring
+# kafka
+
+# longhorn
+  - name: kube-prometheus-stack
+    project: default
+    namespace: monitoring
+    source:
+      path: kube-prometheus-stack
+      customValues: true
+      targetRevision: HEAD
+      values:
+        - ol-values.yaml
