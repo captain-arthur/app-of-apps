@@ -16,6 +16,7 @@ grafana:
                 settings:
                   # 여기에 실제 Slack 웹훅 URL을 입력하세요
                   url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+                  recipient: "C0A4LAEF6P8"  # Slack 채널 ID
                   text: '{{ `{{ template "default.message" . }}` }}'
                   title: '{{ `{{ template "default.title" . }}` }}'
 

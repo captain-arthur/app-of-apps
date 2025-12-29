@@ -26,6 +26,22 @@ grafana:
   users:
     default_theme: dark
 
+  # -- 추가 데이터소스 (MySQL)
+  additionalDataSources:
+    - name: MySQL Observer
+      type: mysql
+      uid: mysql-observer
+      url: mysql-observer:3306
+      user: observer
+      secureJsonData:
+        password: observer123
+      jsonData:
+        database: observer
+        maxOpenConns: 100
+        maxIdleConns: 100
+        connMaxLifetime: 14400
+        timezone: Asia/Seoul
+
   # -- Alerting 리소스 provisioning (재시작 후에도 유지)
   # 참고: contactpoints.yaml은 secret으로 관리됩니다 (웹훅 URL 포함)
   alerting:
@@ -33,6 +49,18 @@ grafana:
       secret:
         apiVersion: 1
         contactPoints:
+          - orgId: 1
+            name: Alert Receiver API
+            receivers:
+              - uid: alert-receiver-webhook
+                type: webhook
+                settings:
+                  # Alert Receiver API URL
+                  # 로컬 개발: http://localhost:8000/webhook/grafana
+                  # Kubernetes: http://alert-receiver.observer.svc.cluster.local:8000/webhook/grafana
+                  # 또는 NodePort를 통해 접근: http://<node-ip>:<nodeport>/webhook/grafana
+                  url: "http://alert-receiver:8000/webhook/grafana"
+                  httpMethod: POST
           - orgId: 1
             name: Slack Alert Channel
             receivers:
@@ -44,6 +72,7 @@ grafana:
                   #    (ol-values.local.yaml.example 참고)
                   # 2. 프로덕션: Kubernetes Secret 사용 (SLACK_WEBHOOK_SETUP.md 참고)
                   url: ""  # ol-values.local.yaml에서 오버라이드하거나 Kubernetes Secret 사용
+                  recipient: "C0A4LAEF6P8"  # Slack 채널 ID
                   text: '{{ `{{ template "default.message" . }}` }}'
                   title: '{{ `{{ template "default.title" . }}` }}'
     
@@ -97,7 +126,7 @@ grafana:
       apiVersion: 1
       policies:
         - orgId: 1
-          receiver: slack-receiver
+          receiver: alert-receiver-webhook
           groupBy:
             - alertname
             - severity
@@ -105,8 +134,13 @@ grafana:
           groupInterval: 10s
           repeatInterval: 12h
           routes:
-            - receiver: slack-receiver
+            # 모든 알람을 Alert Receiver API로 전송
+            - receiver: alert-receiver-webhook
               continue: true
+              matchers: []
+            # Critical 알람은 추가로 Slack에도 전송
+            - receiver: slack-receiver
+              continue: false
               matchers:
                 - label: severity
                   match: "="
@@ -131,4 +165,6 @@ grafana:
     default:
       test-alert-dashboard:
         file: dashboards/test-alert-dashboard.json
+      incident-management-dashboard:
+        file: dashboards/incident-management-dashboard.json
 

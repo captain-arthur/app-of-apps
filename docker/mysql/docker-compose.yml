@@ -22,6 +22,39 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - observer-network
+
+  alert-receiver:
+    build:
+      context: ../alert-receiver
+      dockerfile: Dockerfile
+    container_name: alert-receiver
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: observer
+      DB_PASSWORD: observer123
+      DB_NAME: observer
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      TZ: Asia/Seoul
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - observer-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  observer-network:
+    driver: bridge
 
 volumes:
   mysql_data:

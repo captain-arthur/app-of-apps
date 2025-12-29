@@ -1,6 +1,14 @@
 apiVersion: 1
 contactPoints:
   - orgId: 1
+    name: Alert Receiver API
+    receivers:
+      - uid: alert-receiver-webhook
+        type: webhook
+        settings:
+          url: "http://alert-receiver:8000/webhook/grafana"
+          httpMethod: POST
+  - orgId: 1
     name: Slack Alert Channel
     receivers:
       - uid: slack-receiver
@@ -10,6 +18,7 @@ contactPoints:
           # 실제 URL은 ol-values.yaml에서 secret으로 설정하거나
           # Kubernetes Secret을 직접 생성하여 사용하세요
           url: ""
+          recipient: "C0A4LAEF6P8"  # Slack 채널 ID
           text: '{{ `{{ template "default.message" . }}` }}'
           title: '{{ `{{ template "default.title" . }}` }}'
 
