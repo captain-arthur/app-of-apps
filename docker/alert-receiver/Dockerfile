@@ -12,6 +12,7 @@ COPY slack_sender.py .
 COPY slack_interactions.py .
 COPY slack_socket.py .
 COPY incident_service.py .
+COPY grafana_silence.py .
 
 # 환경 변수 설정
 ENV PYTHONUNBUFFERED=1

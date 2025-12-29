@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS incidents (
     last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '최근 발생 시각',
     alert_count INT NOT NULL DEFAULT 0 COMMENT '연결된 알람 개수',
     acknowledged_time DATETIME NULL COMMENT '담당자가 인지한 시각',
+    acknowledged_by VARCHAR(255) NULL COMMENT '인지 담당자',
     resolved_time DATETIME NULL COMMENT '문제 해결 시각',
     action_taken TEXT NULL COMMENT '담당자가 기록한 조치 내용',
     root_cause TEXT NULL COMMENT '문제의 근본 원인',
@@ -59,19 +60,7 @@ CREATE TABLE IF NOT EXISTS grafana_alerts (
 -- incident_alert_links 테이블 제거 (단순화)
 -- grafana_alerts.incident_id FK로 직접 연결 관리
 
--- 3. silences 테이블: 알림 음소거 관리
-CREATE TABLE IF NOT EXISTS silences (
-    silence_id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '음소거 고유 ID',
-    incident_key VARCHAR(16) NOT NULL COMMENT '사건 유형 키',
-    starts_at DATETIME NOT NULL COMMENT '음소거 시작 시각',
-    ends_at DATETIME NOT NULL COMMENT '음소거 종료 시각',
-    created_by VARCHAR(255) NULL COMMENT '생성자 (Slack user)',
-    reason VARCHAR(255) NULL COMMENT '음소거 사유',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '레코드 생성 시각',
-    INDEX idx_incident_key (incident_key),
-    INDEX idx_ends_at (ends_at),
-    INDEX idx_active (incident_key, starts_at, ends_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='알림 음소거 관리';
+-- silences 테이블 제거: Grafana의 기본 Silence 기능 사용
 
 -- ============================================================================
 -- 트리거: 데이터 무결성 및 alert_count 자동 관리

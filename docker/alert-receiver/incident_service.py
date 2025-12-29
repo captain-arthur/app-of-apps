@@ -18,17 +18,18 @@ def acknowledge_incident(conn, incident_id: str, user: str) -> bool:
                 UPDATE incidents 
                 SET status = 'acknowledged',
                     acknowledged_time = %s,
+                    acknowledged_by = %s,
                     updated_at = %s
                 WHERE incident_id = %s
             """, (
                 datetime.now(),
+                user,
                 datetime.now(),
                 incident_id
             ))
-            conn.commit()
+            # commit 제거: 호출자에서 처리
             return cursor.rowcount > 0
     except Exception as e:
-        conn.rollback()
         print(f"❌ Incident ACK 실패: {e}")
         return False
 
@@ -54,68 +55,10 @@ def resolve_incident(conn, incident_id: str, user: str) -> bool:
                 datetime.now(),
                 incident_id
             ))
-            conn.commit()
+            # commit 제거: 호출자에서 처리
             return cursor.rowcount > 0
     except Exception as e:
-        conn.rollback()
         print(f"❌ Incident Resolve 실패: {e}")
-        return False
-
-
-def mute_incident(conn, incident_key: str, duration_minutes: int, user: str) -> bool:
-    """
-    Incident 알림 음소거
-    
-    Args:
-        conn: DB 연결
-        incident_key: 사건 유형 키
-        duration_minutes: 음소거 시간 (분)
-        user: 사용자
-    
-    Returns: 성공 여부
-    """
-    try:
-        with conn.cursor() as cursor:
-            starts_at = datetime.now()
-            ends_at = starts_at + timedelta(minutes=duration_minutes)
-            
-            cursor.execute("""
-                INSERT INTO silences 
-                (incident_key, starts_at, ends_at, created_by, reason)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (
-                incident_key,
-                starts_at,
-                ends_at,
-                user,
-                f"Muted for {duration_minutes} minutes"
-            ))
-            conn.commit()
-            return True
-    except Exception as e:
-        conn.rollback()
-        print(f"❌ Incident Mute 실패: {e}")
-        return False
-
-
-def check_silence(conn, incident_key: str) -> bool:
-    """
-    현재 시간에 해당 incident_key가 음소거 상태인지 확인
-    
-    Returns: True if muted, False otherwise
-    """
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT 1 FROM silences 
-                WHERE incident_key = %s 
-                  AND NOW() BETWEEN starts_at AND ends_at
-                LIMIT 1
-            """, (incident_key,))
-            result = cursor.fetchone()
-            return result is not None
-    except Exception as e:
-        print(f"❌ Silence 체크 실패: {e}")
         return False
 
 

@@ -43,6 +43,9 @@ services:
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      GRAFANA_URL: ${GRAFANA_URL:-http://host.docker.internal:32570}
+      GRAFANA_USER: ${GRAFANA_USER:-admin}
+      GRAFANA_PASSWORD: ${GRAFANA_PASSWORD:-olol1234}
       TZ: Asia/Seoul
     depends_on:
       mysql:

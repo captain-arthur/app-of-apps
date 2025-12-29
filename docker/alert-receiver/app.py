@@ -36,7 +36,8 @@ import slack_sender
 import slack_interactions
 from slack_sender import create_incident_card, send_incident_card, send_thread_reply
 from slack_interactions import verify_slack_signature, parse_interaction_payload, extract_button_action
-from incident_service import acknowledge_incident, resolve_incident, mute_incident, check_silence, get_incident_info
+from incident_service import acknowledge_incident, resolve_incident, get_incident_info
+from grafana_silence import mute_incident_via_grafana
 
 # 모듈 변수 설정
 slack_sender.SLACK_WEBHOOK_URL = SLACK_WEBHOOK_URL
@@ -317,25 +318,20 @@ async def grafana_webhook(request: Request):
                     incident = cursor.fetchone()
                     alert_count = incident["alert_count"] if incident else 1
                 
-                # 6. Mute 체크 및 Slack 전송
-                # Mute 기간 중이면 Slack 전송 스킵 (DB 저장은 정상 수행)
-                is_muted = check_silence(conn, incident_key)
-                if not is_muted:
-                    # Incident 정보 조회 (start_time 등)
-                    incident_info = get_incident_info(conn, incident_id)
-                    start_time = incident_info["start_time"] if incident_info else datetime.now()
-                    
-                    slack_ts = send_to_slack(
-                        alert_info, 
-                        incident_id, 
-                        incident_key,
-                        alert_count, 
-                        is_new_incident,
-                        start_time
-                    )
-                    print(f"📤 Slack 전송: ts={slack_ts}")
-                else:
-                    print(f"🔕 Mute 기간 중: Slack 전송 스킵 (incident_key: {incident_key})")
+                # 6. Slack 전송
+                # Incident 정보 조회 (start_time 등)
+                incident_info = get_incident_info(conn, incident_id)
+                start_time = incident_info["start_time"] if incident_info else datetime.now()
+                
+                slack_ts = send_to_slack(
+                    alert_info, 
+                    incident_id, 
+                    incident_key,
+                    alert_count, 
+                    is_new_incident,
+                    start_time
+                )
+                print(f"📤 Slack 전송: ts={slack_ts}")
                 
                 results.append({
                     "alert_id": alert_id,
@@ -435,14 +431,19 @@ async def slack_interactions(
                 success = acknowledge_incident(conn, incident_id, user.get("name", user.get("id", "unknown")))
                 if success:
                     reply_text = f"👀 *Incident ACK 처리됨*\n- by @{user.get('name', 'unknown')}\n- at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                else:
+                    reply_text = f"❌ *Incident ACK 실패*\n- incident_id: {incident_id}\n- by @{user.get('name', 'unknown')}"
             
             elif action == "resolve":
                 success = resolve_incident(conn, incident_id, user.get("name", user.get("id", "unknown")))
                 if success:
                     reply_text = f"✅ *Incident RESOLVED*\n- by @{user.get('name', 'unknown')}\n- at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                else:
+                    reply_text = f"❌ *Incident Resolve 실패*\n- incident_id: {incident_id}\n- by @{user.get('name', 'unknown')}"
             
             elif action.startswith("mute_"):
                 # mute_30m, mute_2h, mute_24h
+                # Mute는 DB 작업이 아니므로 트랜잭션 밖에서 처리
                 duration_map = {
                     "mute_30m": 30,
                     "mute_2h": 120,
@@ -455,18 +456,73 @@ async def slack_interactions(
                     "mute_24h": "24시간"
                 }.get(action, "30분")
                 
-                success = mute_incident(conn, incident_key, duration_minutes, user.get("name", user.get("id", "unknown")))
+                # Incident 정보 조회 (alertname, cluster, namespace 등)
+                incident_info = get_incident_info(conn, incident_id)
+                if not incident_info:
+                    conn.close()
+                    return Response(status_code=404, content="Incident not found")
+                
+                # 최근 알람에서 alertname 추출
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT alertname, labels
+                        FROM grafana_alerts
+                        WHERE incident_id = %s
+                        ORDER BY received_at DESC
+                        LIMIT 1
+                    """, (incident_id,))
+                    alert = cursor.fetchone()
+                
+                conn.close()  # Mute는 DB 작업이 아니므로 연결 종료
+                
+                if not alert:
+                    return Response(status_code=404, content="Alert not found")
+                
+                # Labels에서 정보 추출
+                labels = alert.get("labels") or {}
+                if isinstance(labels, str):
+                    import json
+                    labels = json.loads(labels)
+                
+                alertname = alert.get("alertname") or labels.get("alertname", "")
+                cluster = labels.get("cluster") or incident_info.get("cluster")
+                namespace = labels.get("namespace") or incident_info.get("namespace")
+                phase = labels.get("phase") or incident_info.get("phase")
+                service = labels.get("service") or incident_info.get("service")
+                
+                # Grafana Silence 생성
+                success = mute_incident_via_grafana(
+                    alertname=alertname,
+                    cluster=cluster,
+                    namespace=namespace,
+                    phase=phase,
+                    service=service,
+                    duration_minutes=duration_minutes,
+                    user=user.get("name", user.get("id", "unknown"))
+                )
+                
                 if success:
-                    reply_text = f"🔕 *Incident 알림 음소거*\n- duration: {duration_text}\n- by @{user.get('name', 'unknown')}"
+                    reply_text = f"🔕 *Grafana Silence 생성됨*\n- duration: {duration_text}\n- by @{user.get('name', 'unknown')}"
+                else:
+                    reply_text = f"❌ *Grafana Silence 생성 실패*\n- duration: {duration_text}\n- by @{user.get('name', 'unknown')}"
+                
+                # Slack 스레드에 댓글 추가
+                if message_ts and reply_text:
+                    send_thread_reply(message_ts, reply_text, channel)
+                
+                return Response(status_code=200, content="OK")
             
             else:
                 return Response(status_code=400, content=f"Unknown action: {action}")
             
+            # DB 작업 (ack, resolve)만 commit
             if success:
                 conn.commit()
             else:
                 conn.rollback()
-                return Response(status_code=500, content="Failed to process action")
+                # 실패해도 Slack에 에러 메시지 전송
+                if not reply_text:
+                    reply_text = f"❌ *처리 실패*\n- action: {action}\n- incident_id: {incident_id}"
         
         except Exception as e:
             conn.rollback()
@@ -477,9 +533,11 @@ async def slack_interactions(
         finally:
             conn.close()
         
-        # Slack 스레드에 댓글 추가
+        # Slack 스레드에 댓글 추가 (ack, resolve)
         if message_ts and reply_text:
             send_thread_reply(message_ts, reply_text, channel)
+        
+        return Response(status_code=200, content="OK")
         
         # Slack에 즉시 응답 (3초 이내)
         return JSONResponse(content={
