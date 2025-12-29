@@ -2,23 +2,127 @@
   "dashboard": {
     "id": null,
     "uid": "incident-management",
-    "title": "Incident 관리 대시보드",
-    "tags": ["incident", "alert", "monitoring"],
-    "timezone": "Asia/Seoul",
+    "title": "Incident Management Dashboard (SRE)",
+    "tags": [
+      "incident",
+      "alert",
+      "monitoring",
+      "sre"
+    ],
+    "timezone": "",
     "schemaVersion": 38,
     "version": 1,
     "refresh": "30s",
+    "templating": {
+      "list": [
+        {
+          "name": "cluster",
+          "type": "query",
+          "datasource": {
+            "type": "mysql",
+            "uid": "mysql-observer"
+          },
+          "query": "SELECT DISTINCT cluster as __text, cluster as __value FROM incidents WHERE cluster IS NOT NULL AND cluster != '' ORDER BY cluster",
+          "current": {
+            "selected": false,
+            "text": "All",
+            "value": "$__all"
+          },
+          "options": [],
+          "includeAll": true,
+          "multi": true,
+          "allValue": null,
+          "refresh": 1
+        },
+        {
+          "name": "namespace",
+          "type": "query",
+          "datasource": {
+            "type": "mysql",
+            "uid": "mysql-observer"
+          },
+          "query": "SELECT DISTINCT namespace as __text, namespace as __value FROM incidents WHERE namespace IS NOT NULL AND namespace != '' ORDER BY namespace",
+          "current": {
+            "selected": false,
+            "text": "All",
+            "value": "$__all"
+          },
+          "options": [],
+          "includeAll": true,
+          "multi": true,
+          "allValue": null,
+          "refresh": 1
+        },
+        {
+          "name": "service",
+          "type": "query",
+          "datasource": {
+            "type": "mysql",
+            "uid": "mysql-observer"
+          },
+          "query": "SELECT DISTINCT service as __text, service as __value FROM incidents WHERE service IS NOT NULL AND service != '' ORDER BY service",
+          "current": {
+            "selected": false,
+            "text": "All",
+            "value": "$__all"
+          },
+          "options": [],
+          "includeAll": true,
+          "multi": true,
+          "allValue": null,
+          "refresh": 1
+        },
+        {
+          "name": "severity",
+          "type": "query",
+          "datasource": {
+            "type": "mysql",
+            "uid": "mysql-observer"
+          },
+          "query": "SELECT DISTINCT severity as __text, severity as __value FROM incidents WHERE severity IS NOT NULL AND severity != '' ORDER BY severity",
+          "current": {
+            "selected": false,
+            "text": "All",
+            "value": "$__all"
+          },
+          "options": [],
+          "includeAll": true,
+          "multi": true,
+          "allValue": null,
+          "refresh": 1
+        },
+        {
+          "name": "status",
+          "type": "query",
+          "datasource": {
+            "type": "mysql",
+            "uid": "mysql-observer"
+          },
+          "query": "SELECT DISTINCT status as __text, status as __value FROM incidents ORDER BY status",
+          "current": {
+            "selected": false,
+            "text": "All",
+            "value": "$__all"
+          },
+          "options": [],
+          "includeAll": true,
+          "multi": true,
+          "allValue": null,
+          "refresh": 1
+        }
+      ]
+    },
     "panels": [
       {
         "id": 1,
         "gridPos": {
-          "h": 8,
+          "h": 4,
           "w": 6,
           "x": 0,
           "y": 0
         },
         "type": "stat",
-        "title": "전체 알람 수",
+        "title": "Active Incidents",
         "targets": [
           {
             "datasource": {
@@ -28,83 +132,10 @@
             "editorMode": "code",
             "format": "table",
             "rawQuery": true,
-            "rawSql": "SELECT COUNT(*) as value FROM grafana_alerts",
-            "refId": "A",
-            "sql": {
-              "columns": [
-                {
-                  "parameters": [],
-                  "type": "function"
-                }
-              ],
-              "groupBy": [
-                {
-                  "property": {
-                    "type": "string"
-                  },
-                  "type": "groupBy"
-                }
-              ],
-              "limit": 50
-            }
-          }
-        ],
-        "options": {
-          "graphMode": "none",
-          "colorMode": "value",
-          "justifyMode": "auto",
-          "orientation": "auto",
-          "textMode": "auto"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "color": {
-              "mode": "palette-classic"
-            },
-            "custom": {},
-            "mappings": [],
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {
-                  "value": null,
-                  "color": "green"
-                }
-              ]
-            }
-          }
-        }
-      },
-      {
-        "id": 2,
-        "gridPos": {
-          "h": 8,
-          "w": 6,
-          "x": 6,
-          "y": 0
-        },
-        "type": "stat",
-        "title": "활성 Incident 수",
-        "targets": [
-          {
-            "datasource": {
-              "type": "mysql",
-              "uid": "mysql-observer"
-            },
-            "editorMode": "code",
-            "format": "table",
-            "rawQuery": true,
-            "rawSql": "SELECT COUNT(*) as value FROM incidents WHERE status IN ('active', 'acknowledged')",
+            "rawSql": "SELECT COUNT(*) as value FROM incidents WHERE status IN ('active', 'acknowledged') AND (COALESCE($cluster, '') = '' OR cluster IN ($cluster)) AND (COALESCE($namespace, '') = '' OR namespace IN ($namespace)) AND (COALESCE($service, '') = '' OR service IN ($service)) AND (COALESCE($severity, '') = '' OR severity IN ($severity))",
             "refId": "A"
           }
         ],
-        "options": {
-          "graphMode": "none",
-          "colorMode": "value",
-          "justifyMode": "auto",
-          "orientation": "auto",
-          "textMode": "auto"
-        },
         "fieldConfig": {
           "defaults": {
             "color": {
@@ -115,32 +146,76 @@
               "mode": "absolute",
               "steps": [
                 {
-                  "value": null,
-                  "color": "green"
+                  "color": "green",
+                  "value": null
                 },
                 {
-                  "value": 5,
-                  "color": "yellow"
+                  "color": "yellow",
+                  "value": 1
                 },
                 {
-                  "value": 10,
-                  "color": "red"
+                  "color": "red",
+                  "value": 5
                 }
               ]
-            }
+            },
+            "unit": "short"
           }
+        },
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "textMode": "auto"
+        }
+      },
+      {
+        "id": 2,
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        },
+        "type": "stat",
+        "title": "Total Alerts (24h)",
+        "targets": [
+          {
+            "datasource": {
+              "type": "mysql",
+              "uid": "mysql-observer"
+            },
+            "editorMode": "code",
+            "format": "table",
+            "rawQuery": true,
+            "rawSql": "SELECT COUNT(*) as value FROM grafana_alerts WHERE received_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR) AND (COALESCE($cluster, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.cluster')) IN ($cluster)) AND (COALESCE($namespace, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.namespace')) IN ($namespace)) AND (COALESCE($service, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.service')) IN ($service)) AND (COALESCE($severity, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.severity')) IN ($severity))",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "short"
+          }
+        },
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value"
         }
       },
       {
         "id": 3,
         "gridPos": {
-          "h": 8,
+          "h": 4,
           "w": 6,
           "x": 12,
           "y": 0
         },
         "type": "stat",
-        "title": "해결된 Incident 수",
+        "title": "Resolved (24h)",
         "targets": [
           {
             "datasource": {
@@ -150,45 +225,33 @@
             "editorMode": "code",
             "format": "table",
             "rawQuery": true,
-            "rawSql": "SELECT COUNT(*) as value FROM incidents WHERE status = 'resolved'",
+            "rawSql": "SELECT COUNT(*) as value FROM incidents WHERE status = 'resolved' AND resolved_time >= DATE_SUB(NOW(), INTERVAL 24 HOUR) AND (COALESCE($cluster, '') = '' OR cluster IN ($cluster)) AND (COALESCE($namespace, '') = '' OR namespace IN ($namespace)) AND (COALESCE($service, '') = '' OR service IN ($service))",
             "refId": "A"
           }
         ],
-        "options": {
-          "graphMode": "none",
-          "colorMode": "value",
-          "justifyMode": "auto",
-          "orientation": "auto",
-          "textMode": "auto"
-        },
         "fieldConfig": {
           "defaults": {
             "color": {
               "mode": "palette-classic"
             },
-            "mappings": [],
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {
-                  "value": null,
-                  "color": "blue"
-                }
-              ]
-            }
+            "unit": "short"
           }
+        },
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value"
         }
       },
       {
         "id": 4,
         "gridPos": {
-          "h": 8,
+          "h": 4,
           "w": 6,
           "x": 18,
           "y": 0
         },
         "type": "stat",
-        "title": "전체 Incident 수",
+        "title": "Mean Time to Resolve (MTTR)",
         "targets": [
           {
             "datasource": {
@@ -198,45 +261,51 @@
             "editorMode": "code",
             "format": "table",
             "rawQuery": true,
-            "rawSql": "SELECT COUNT(*) as value FROM incidents",
+            "rawSql": "SELECT AVG(TIMESTAMPDIFF(MINUTE, start_time, resolved_time)) as value FROM incidents WHERE status = 'resolved' AND resolved_time >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND (COALESCE($cluster, '') = '' OR cluster IN ($cluster)) AND (COALESCE($namespace, '') = '' OR namespace IN ($namespace)) AND (COALESCE($service, '') = '' OR service IN ($service))",
             "refId": "A"
           }
         ],
-        "options": {
-          "graphMode": "none",
-          "colorMode": "value",
-          "justifyMode": "auto",
-          "orientation": "auto",
-          "textMode": "auto"
-        },
         "fieldConfig": {
           "defaults": {
             "color": {
-              "mode": "palette-classic"
+              "mode": "thresholds"
             },
             "mappings": [],
             "thresholds": {
               "mode": "absolute",
               "steps": [
                 {
-                  "value": null,
-                  "color": "green"
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 30
+                },
+                {
+                  "color": "red",
+                  "value": 60
                 }
               ]
-            }
+            },
+            "unit": "m"
           }
+        },
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value"
         }
       },
       {
         "id": 5,
         "gridPos": {
-          "h": 10,
+          "h": 8,
           "w": 12,
           "x": 0,
-          "y": 8
+          "y": 4
         },
         "type": "timeseries",
-        "title": "알람 발생 추이",
+        "title": "Alert Rate (Four Golden Signals: Errors)",
         "targets": [
           {
             "datasource": {
@@ -246,7 +315,7 @@
             "editorMode": "code",
             "format": "time_series",
             "rawQuery": true,
-            "rawSql": "SELECT\n  UNIX_TIMESTAMP(received_at) as time,\n  COUNT(*) as value\nFROM grafana_alerts\nWHERE $__timeFilter(received_at)\nGROUP BY time\nORDER BY time",
+            "rawSql": "SELECT\n  UNIX_TIMESTAMP(DATE_FORMAT(received_at, '%Y-%m-%d %H:00:00')) as time_sec,\n  COUNT(*) as value\nFROM grafana_alerts\nWHERE $__timeFilter(received_at)\n  AND (COALESCE($cluster, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.cluster')) IN ($cluster))\n  AND (COALESCE($namespace, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.namespace')) IN ($namespace))\n  AND (COALESCE($service, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.service')) IN ($service))\n  AND (COALESCE($severity, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.severity')) IN ($severity))\nGROUP BY UNIX_TIMESTAMP(DATE_FORMAT(received_at, '%Y-%m-%d %H:00:00'))\nORDER BY time_sec",
             "refId": "A"
           }
         ],
@@ -256,17 +325,12 @@
               "mode": "palette-classic"
             },
             "custom": {
-              "axisLabel": "",
+              "axisLabel": "Alerts",
               "axisPlacement": "auto",
               "barAlignment": 0,
               "drawStyle": "line",
               "fillOpacity": 10,
               "gradientMode": "none",
-              "hideFrom": {
-                "tooltip": false,
-                "viz": false,
-                "legend": false
-              },
               "lineInterpolation": "linear",
               "lineWidth": 1,
               "pointSize": 5,
@@ -274,22 +338,15 @@
                 "type": "linear"
               },
               "showPoints": "never",
-              "spanNulls": false,
-              "stacking": {
-                "group": "A",
-                "mode": "none"
-              },
-              "thresholdsStyle": {
-                "mode": "off"
-              }
+              "spanNulls": false
             },
             "mappings": [],
             "thresholds": {
               "mode": "absolute",
               "steps": [
                 {
-                  "value": null,
-                  "color": "green"
+                  "color": "green",
+                  "value": null
                 }
               ]
             },
@@ -300,13 +357,13 @@
       {
         "id": 6,
         "gridPos": {
-          "h": 10,
+          "h": 8,
           "w": 12,
           "x": 12,
-          "y": 8
+          "y": 4
         },
         "type": "timeseries",
-        "title": "Incident 상태별 추이",
+        "title": "Incident State Transitions (Active → Acknowledged → Resolved)",
         "targets": [
           {
             "datasource": {
@@ -316,7 +373,7 @@
             "editorMode": "code",
             "format": "time_series",
             "rawQuery": true,
-            "rawSql": "SELECT\n  UNIX_TIMESTAMP(created_at) as time,\n  status as metric,\n  COUNT(*) as value\nFROM incidents\nWHERE $__timeFilter(created_at)\nGROUP BY time, status\nORDER BY time",
+            "rawSql": "SELECT\n  UNIX_TIMESTAMP(DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00')) as time_sec,\n  status as metric,\n  COUNT(*) as value\nFROM incidents\nWHERE $__timeFilter(created_at)\n  AND (COALESCE($cluster, '') = '' OR cluster IN ($cluster))\n  AND (COALESCE($namespace, '') = '' OR namespace IN ($namespace))\n  AND (COALESCE($service, '') = '' OR service IN ($service))\n  AND (COALESCE($status, '') = '' OR status IN ($status))\nGROUP BY UNIX_TIMESTAMP(DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00')), status\nORDER BY time_sec",
             "refId": "A"
           }
         ],
@@ -326,17 +383,10 @@
               "mode": "palette-classic"
             },
             "custom": {
-              "axisLabel": "",
+              "axisLabel": "Incidents",
               "axisPlacement": "auto",
-              "barAlignment": 0,
               "drawStyle": "line",
               "fillOpacity": 10,
-              "gradientMode": "none",
-              "hideFrom": {
-                "tooltip": false,
-                "viz": false,
-                "legend": false
-              },
               "lineInterpolation": "linear",
               "lineWidth": 1,
               "pointSize": 5,
@@ -344,25 +394,9 @@
                 "type": "linear"
               },
               "showPoints": "never",
-              "spanNulls": false,
-              "stacking": {
-                "group": "A",
-                "mode": "none"
-              },
-              "thresholdsStyle": {
-                "mode": "off"
-              }
+              "spanNulls": false
             },
             "mappings": [],
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {
-                  "value": null,
-                  "color": "green"
-                }
-              ]
-            },
             "unit": "short"
           }
         }
@@ -370,13 +404,13 @@
       {
         "id": 7,
         "gridPos": {
-          "h": 10,
+          "h": 8,
           "w": 8,
           "x": 0,
-          "y": 18
+          "y": 12
         },
         "type": "piechart",
-        "title": "Severity별 분포",
+        "title": "Severity Distribution (Error Budget Impact)",
         "targets": [
           {
             "datasource": {
@@ -386,14 +420,16 @@
             "editorMode": "code",
             "format": "table",
             "rawQuery": true,
-            "rawSql": "SELECT severity as metric, COUNT(*) as value FROM incidents GROUP BY severity",
+            "rawSql": "SELECT severity as metric, COUNT(*) as value FROM incidents WHERE (COALESCE($cluster, '') = '' OR cluster IN ($cluster)) AND (COALESCE($namespace, '') = '' OR namespace IN ($namespace)) AND (COALESCE($service, '') = '' OR service IN ($service)) AND (COALESCE($status, '') = '' OR status IN ($status)) AND severity IS NOT NULL AND severity != '' GROUP BY severity",
             "refId": "A"
           }
         ],
         "options": {
           "reduceOptions": {
             "values": false,
-            "calcs": ["lastNotNull"],
+            "calcs": [
+              "lastNotNull"
+            ],
             "fields": ""
           },
           "pieType": "pie",
@@ -404,35 +440,18 @@
             "displayMode": "visible",
             "placement": "right"
           }
-        },
-        "fieldConfig": {
-          "defaults": {
-            "color": {
-              "mode": "palette-classic"
-            },
-            "mappings": [],
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {
-                  "value": null,
-                  "color": "green"
-                }
-              ]
-            }
-          }
         }
       },
       {
         "id": 8,
         "gridPos": {
-          "h": 10,
+          "h": 8,
           "w": 8,
           "x": 8,
-          "y": 18
+          "y": 12
         },
         "type": "bargauge",
-        "title": "서비스별 알람 수",
+        "title": "Top Services by Alert Count",
         "targets": [
           {
             "datasource": {
@@ -442,16 +461,10 @@
             "editorMode": "code",
             "format": "table",
             "rawQuery": true,
-            "rawSql": "SELECT service as metric, COUNT(*) as value FROM incidents WHERE service IS NOT NULL AND service != '' GROUP BY service ORDER BY value DESC LIMIT 10",
+            "rawSql": "SELECT service as metric, SUM(alert_count) as value FROM incidents WHERE (COALESCE($cluster, '') = '' OR cluster IN ($cluster)) AND (COALESCE($namespace, '') = '' OR namespace IN ($namespace)) AND (COALESCE($service, '') = '' OR service IN ($service)) AND (COALESCE($status, '') = '' OR status IN ($status)) AND service IS NOT NULL AND service != '' GROUP BY service ORDER BY value DESC LIMIT 10",
             "refId": "A"
           }
         ],
-        "options": {
-          "orientation": "horizontal",
-          "displayMode": "gradient",
-          "showUnfilled": true,
-          "valueMode": "color"
-        },
         "fieldConfig": {
           "defaults": {
             "color": {
@@ -462,33 +475,38 @@
               "mode": "absolute",
               "steps": [
                 {
-                  "value": null,
-                  "color": "green"
+                  "color": "green",
+                  "value": null
                 },
                 {
-                  "value": 2,
-                  "color": "yellow"
+                  "color": "yellow",
+                  "value": 5
                 },
                 {
-                  "value": 5,
-                  "color": "red"
+                  "color": "red",
+                  "value": 10
                 }
               ]
             },
             "unit": "short"
           }
+        },
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true
         }
       },
       {
         "id": 9,
         "gridPos": {
-          "h": 10,
+          "h": 8,
           "w": 8,
           "x": 16,
-          "y": 18
+          "y": 12
         },
-        "type": "table",
-        "title": "최근 Incident 목록",
+        "type": "bargauge",
+        "title": "Cluster Distribution",
         "targets": [
           {
             "datasource": {
@@ -498,79 +516,21 @@
             "editorMode": "code",
             "format": "table",
             "rawQuery": true,
-            "rawSql": "SELECT\n  incident_id,\n  incident_key,\n  status,\n  severity,\n  cluster,\n  namespace,\n  service,\n  alert_count,\n  first_seen_at,\n  last_seen_at\nFROM incidents\nORDER BY last_seen_at DESC\nLIMIT 20",
+            "rawSql": "SELECT cluster as metric, COUNT(*) as value FROM incidents WHERE (COALESCE($cluster, '') = '' OR cluster IN ($cluster)) AND (COALESCE($namespace, '') = '' OR namespace IN ($namespace)) AND (COALESCE($service, '') = '' OR service IN ($service)) AND (COALESCE($status, '') = '' OR status IN ($status)) AND cluster IS NOT NULL AND cluster != '' GROUP BY cluster ORDER BY value DESC",
             "refId": "A"
           }
         ],
-        "options": {
-          "showHeader": true,
-          "cellHeight": "sm",
-          "footer": {
-            "show": false,
-            "reducer": ["sum"],
-            "countRows": false
-          }
-        },
         "fieldConfig": {
           "defaults": {
             "color": {
-              "mode": "thresholds"
+              "mode": "palette-classic"
             },
-            "custom": {
-              "align": "auto",
-              "displayMode": "auto"
-            },
-            "mappings": [],
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {
-                  "value": null,
-                  "color": "green"
-                }
-              ]
-            }
-          },
-          "overrides": [
-            {
-              "matcher": {
-                "id": "byName",
-                "options": "status"
-              },
-              "properties": [
-                {
-                  "id": "custom.cellOptions",
-                  "value": {
-                    "type": "color-background"
-                  }
-                },
-                {
-                  "id": "thresholds",
-                  "value": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "value": null,
-                        "color": "green"
-                      },
-                      {
-                        "value": "active",
-                        "color": "red"
-                      },
-                      {
-                        "value": "acknowledged",
-                        "color": "yellow"
-                      },
-                      {
-                        "value": "resolved",
-                        "color": "blue"
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-          ]
+            "unit": "short"
+          }
+        },
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient"
         }
       },
       {
@@ -579,10 +539,10 @@
           "h": 10,
           "w": 12,
           "x": 0,
-          "y": 28
+          "y": 20
         },
         "type": "table",
-        "title": "최근 알람 목록",
+        "title": "Active Incidents Detail",
         "targets": [
           {
             "datasource": {
@@ -592,19 +552,10 @@
             "editorMode": "code",
             "format": "table",
             "rawQuery": true,
-            "rawSql": "SELECT\n  alert_id,\n  incident_id,\n  alertname,\n  state,\n  received_at,\n  message\nFROM grafana_alerts\nORDER BY received_at DESC\nLIMIT 30",
+            "rawSql": "SELECT\n  incident_id,\n  status,\n  severity,\n  cluster,\n  namespace,\n  service,\n  service_category,\n  alert_count,\n  TIMESTAMPDIFF(MINUTE, start_time, NOW()) as age_minutes,\n  start_time,\n  last_seen_at\nFROM incidents\nWHERE status IN ('active', 'acknowledged')\n  AND (COALESCE($cluster, '') = '' OR cluster IN ($cluster))\n  AND (COALESCE($namespace, '') = '' OR namespace IN ($namespace))\n  AND (COALESCE($service, '') = '' OR service IN ($service))\n  AND (COALESCE($severity, '') = '' OR severity IN ($severity))\nORDER BY last_seen_at DESC\nLIMIT 50",
             "refId": "A"
           }
         ],
-        "options": {
-          "showHeader": true,
-          "cellHeight": "sm",
-          "footer": {
-            "show": false,
-            "reducer": ["sum"],
-            "countRows": false
-          }
-        },
         "fieldConfig": {
           "defaults": {
             "color": {
@@ -619,12 +570,58 @@
               "mode": "absolute",
               "steps": [
                 {
-                  "value": null,
-                  "color": "green"
+                  "color": "green",
+                  "value": null
                 }
               ]
             }
-          }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "severity"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "continuous-GrYlRd"
+                  }
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "colored-background"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "status"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "red",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "sortBy": [
+            {
+              "desc": true,
+              "displayName": "last_seen_at"
+            }
+          ]
         }
       },
       {
@@ -633,10 +630,10 @@
           "h": 10,
           "w": 12,
           "x": 12,
-          "y": 28
+          "y": 20
         },
-        "type": "bargauge",
-        "title": "클러스터별 Incident 수",
+        "type": "table",
+        "title": "Recent Alerts",
         "targets": [
           {
             "datasource": {
@@ -646,39 +643,165 @@
             "editorMode": "code",
             "format": "table",
             "rawQuery": true,
-            "rawSql": "SELECT cluster as metric, COUNT(*) as value FROM incidents WHERE cluster IS NOT NULL AND cluster != '' GROUP BY cluster ORDER BY value DESC",
+            "rawSql": "SELECT\n  alert_id,\n  incident_id,\n  alertname,\n  state,\n  JSON_EXTRACT(labels, '$.severity') as severity,\n  JSON_EXTRACT(labels, '$.cluster') as cluster,\n  JSON_EXTRACT(labels, '$.namespace') as namespace,\n  JSON_EXTRACT(labels, '$.service') as service,\n  received_at,\n  LEFT(message, 100) as message_preview\nFROM grafana_alerts\nWHERE (COALESCE($cluster, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.cluster')) IN ($cluster))\n  AND (COALESCE($namespace, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.namespace')) IN ($namespace))\n  AND (COALESCE($service, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.service')) IN ($service))\n  AND (COALESCE($severity, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.severity')) IN ($severity))\nORDER BY received_at DESC\nLIMIT 50",
             "refId": "A"
           }
         ],
-        "options": {
-          "orientation": "horizontal",
-          "displayMode": "gradient",
-          "showUnfilled": true,
-          "valueMode": "color"
-        },
         "fieldConfig": {
           "defaults": {
             "color": {
               "mode": "thresholds"
+            },
+            "custom": {
+              "align": "auto",
+              "displayMode": "auto"
             },
             "mappings": [],
             "thresholds": {
               "mode": "absolute",
               "steps": [
                 {
-                  "value": null,
-                  "color": "green"
+                  "color": "green",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "state"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "red",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "sortBy": [
+            {
+              "desc": true,
+              "displayName": "received_at"
+            }
+          ]
+        }
+      },
+      {
+        "id": 12,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 30
+        },
+        "type": "timeseries",
+        "title": "MTTR Trend (Mean Time to Resolve)",
+        "targets": [
+          {
+            "datasource": {
+              "type": "mysql",
+              "uid": "mysql-observer"
+            },
+            "editorMode": "code",
+            "format": "time_series",
+            "rawQuery": true,
+            "rawSql": "SELECT\n  UNIX_TIMESTAMP(DATE_FORMAT(resolved_time, '%Y-%m-%d %H:00:00')) as time_sec,\n  AVG(TIMESTAMPDIFF(MINUTE, start_time, resolved_time)) as value\nFROM incidents\nWHERE status = 'resolved'\n  AND resolved_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)\n  AND (COALESCE($cluster, '') = '' OR cluster IN ($cluster))\n  AND (COALESCE($namespace, '') = '' OR namespace IN ($namespace))\n  AND (COALESCE($service, '') = '' OR service IN ($service))\nGROUP BY UNIX_TIMESTAMP(DATE_FORMAT(resolved_time, '%Y-%m-%d %H:00:00'))\nORDER BY time_sec",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisLabel": "Minutes",
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "spanNulls": false
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
                 },
                 {
-                  "value": 5,
-                  "color": "yellow"
+                  "color": "yellow",
+                  "value": 30
                 },
                 {
-                  "value": 10,
-                  "color": "red"
+                  "color": "red",
+                  "value": 60
                 }
               ]
             },
+            "unit": "m"
+          }
+        }
+      },
+      {
+        "id": 13,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 30
+        },
+        "type": "timeseries",
+        "title": "Alert Volume by Service (Traffic Signal)",
+        "targets": [
+          {
+            "datasource": {
+              "type": "mysql",
+              "uid": "mysql-observer"
+            },
+            "editorMode": "code",
+            "format": "time_series",
+            "rawQuery": true,
+            "rawSql": "SELECT\n  UNIX_TIMESTAMP(DATE_FORMAT(received_at, '%Y-%m-%d %H:00:00')) as time_sec,\n  JSON_EXTRACT(labels, '$.service') as metric,\n  COUNT(*) as value\nFROM grafana_alerts\nWHERE $__timeFilter(received_at)\n  AND (COALESCE($cluster, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.cluster')) IN ($cluster))\n  AND (COALESCE($namespace, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.namespace')) IN ($namespace))\n  AND (COALESCE($service, '') = '' OR JSON_UNQUOTE(JSON_EXTRACT(labels, '$.service')) IN ($service))\n  AND JSON_EXTRACT(labels, '$.service') IS NOT NULL\nGROUP BY UNIX_TIMESTAMP(DATE_FORMAT(received_at, '%Y-%m-%d %H:00:00')), JSON_EXTRACT(labels, '$.service')\nORDER BY time_sec\nLIMIT 100",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisLabel": "Alerts",
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "never",
+              "spanNulls": false
+            },
+            "mappings": [],
             "unit": "short"
           }
         }
@@ -688,19 +811,7 @@
       "from": "now-6h",
       "to": "now"
     },
-    "timepicker": {},
-    "templating": {
-      "list": []
-    },
-    "annotations": {
-      "list": []
-    },
-    "editable": true,
-    "fiscalYearStartMonth": 0,
-    "graphTooltip": 0,
-    "links": [],
-    "liveNow": false,
-    "weekStart": ""
-  }
+    "timepicker": {}
+  },
+  "overwrite": true
 }
-
