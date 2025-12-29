@@ -94,6 +94,11 @@ curl -s -X PUT \
         \"receiver\": \"alert-receiver-webhook\",
         \"continue\": true,
         \"matchers\": []
+      },
+      {
+        \"receiver\": \"slack-receiver\",
+        \"continue\": false,
+        \"matchers\": []
       }
     ]
   }" \
