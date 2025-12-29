@@ -1,6 +1,10 @@
 ## kube-prometheus-stack 커스텀 설정
 ## 기본 values.yaml을 기반으로 최소한의 설정만 오버라이드
 
+# -- Node Exporter 비활성화
+nodeExporter:
+  enabled: false
+
 grafana:
   # -- Grafana admin 패스워드 설정
   adminPassword: "olol1234"
@@ -11,4 +15,10 @@ grafana:
     type: NodePort
     # -- NodePort 포트 (기본 서비스 포트: 80)
     port: 80
+
+  # -- Grafana 설정 (HTTP 프로토콜 명시)
+  grafana.ini:
+    server:
+      # -- HTTP 프로토콜 사용 명시
+      protocol: http
 
