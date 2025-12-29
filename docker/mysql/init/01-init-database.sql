@@ -49,11 +49,76 @@ CREATE TABLE IF NOT EXISTS incidents (
     INDEX idx_status (status),
     INDEX idx_last_seen_at (last_seen_at),
     INDEX idx_cluster_namespace_service (cluster, namespace, service),
-    INDEX idx_service_category (service_category)
+    INDEX idx_service_category (service_category),
+    -- 성능 최적화: 복합 인덱스 (incident_key, status, last_seen_at)
+    -- WHERE incident_key = ? AND status IN (...) ORDER BY last_seen_at DESC 쿼리 최적화
+    INDEX idx_incident_key_status_last_seen (incident_key, status, last_seen_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사건 관리 테이블';
 
 -- incident_alert_links 테이블 제거 (단순화)
 -- grafana_alerts.incident_id FK로 직접 연결 관리
 
 -- silences 테이블 제거 (이번 단순화 범위에서 제외)
+
+-- ============================================================================
+-- 트리거: 데이터 무결성 및 alert_count 자동 관리
+-- ============================================================================
+
+-- 트리거 1: alert_count 자동 업데이트 (grafana_alerts INSERT 시)
+DELIMITER //
+CREATE TRIGGER IF NOT EXISTS trg_update_alert_count_on_insert
+AFTER INSERT ON grafana_alerts
+FOR EACH ROW
+BEGIN
+    UPDATE incidents
+    SET alert_count = (
+        SELECT COUNT(*) FROM grafana_alerts 
+        WHERE incident_id = NEW.incident_id
+    )
+    WHERE incident_id = NEW.incident_id;
+END//
+DELIMITER ;
+
+-- 트리거 2: alert_count 자동 업데이트 (grafana_alerts DELETE 시)
+DELIMITER //
+CREATE TRIGGER IF NOT EXISTS trg_update_alert_count_on_delete
+AFTER DELETE ON grafana_alerts
+FOR EACH ROW
+BEGIN
+    UPDATE incidents
+    SET alert_count = (
+        SELECT COUNT(*) FROM grafana_alerts 
+        WHERE incident_id = OLD.incident_id
+    )
+    WHERE incident_id = OLD.incident_id;
+END//
+DELIMITER ;
+
+-- 트리거 3: 데이터 무결성 체크 - 같은 incident_key에 여러 open incident 방지
+-- INSERT 전에 체크하여 중복 방지
+DELIMITER //
+CREATE TRIGGER IF NOT EXISTS trg_prevent_duplicate_open_incident
+BEFORE INSERT ON incidents
+FOR EACH ROW
+BEGIN
+    DECLARE open_count INT;
+    
+    -- 같은 incident_key에 open incident가 있는지 확인
+    SELECT COUNT(*) INTO open_count
+    FROM incidents
+    WHERE incident_key = NEW.incident_key
+      AND status IN ('active', 'acknowledged')
+      AND incident_id != NEW.incident_id;  -- 자기 자신 제외
+    
+    -- 이미 open incident가 있으면 에러 발생
+    IF open_count > 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = CONCAT(
+            'Duplicate open incident detected for incident_key: ', 
+            NEW.incident_key,
+            '. Only one open incident per incident_key is allowed.'
+        );
+    END IF;
+END//
+DELIMITER ;
 

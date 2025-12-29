@@ -88,7 +88,10 @@ def extract_alert_info(alert: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def save_alert_to_db(conn, alert_info: Dict[str, Any], raw_payload: Dict[str, Any], incident_id: str, incident_key: str) -> int:
-    """알람을 grafana_alerts 테이블에 저장 (incident_id, incident_key 포함)"""
+    """
+    알람을 grafana_alerts 테이블에 저장 (incident_id, incident_key 포함)
+    주의: commit은 호출자에서 처리 (트랜잭션 범위 확대)
+    """
     with conn.cursor() as cursor:
         sql = """
         INSERT INTO grafana_alerts 
@@ -107,7 +110,7 @@ def save_alert_to_db(conn, alert_info: Dict[str, Any], raw_payload: Dict[str, An
             json.dumps(alert_info["annotations"]),
             json.dumps(raw_payload)
         ))
-        conn.commit()
+        # commit 제거: 호출자에서 처리
         return cursor.lastrowid
 
 
@@ -115,13 +118,16 @@ def find_or_create_incident(conn, incident_key: str, alert_info: Dict[str, Any])
     """
     Open Incident 찾기 또는 새로 생성
     - open incident 조회 (status IN ('active','acknowledged'))
-    - 있으면 기존 사용 (업데이트: last_seen_at, alert_count)
+    - SELECT FOR UPDATE로 Row Lock하여 동시성 문제 해결
+    - 있으면 기존 사용 (업데이트: last_seen_at, severity)
     - 없으면 새로 생성
+    - 주의: commit은 호출자에서 처리 (트랜잭션 범위 확대)
     
     Returns: (incident_id, is_new_incident)
     """
     with conn.cursor() as cursor:
-        # Open incident 조회
+        # Open incident 조회 (SELECT FOR UPDATE로 Row Lock)
+        # 동시성 문제 해결: 같은 incident_key로 동시 요청 시 하나만 처리
         cursor.execute("""
             SELECT incident_id, alert_count 
             FROM incidents 
@@ -129,17 +135,18 @@ def find_or_create_incident(conn, incident_key: str, alert_info: Dict[str, Any])
               AND status IN ('active', 'acknowledged')
             ORDER BY last_seen_at DESC
             LIMIT 1
+            FOR UPDATE  -- Row Lock: 동시성 문제 해결
         """, (incident_key,))
         existing = cursor.fetchone()
         
         if existing:
             # 기존 open incident 사용
             incident_id = existing["incident_id"]
-            # 업데이트: alert_count 증가, last_seen_at 갱신, status를 active로 변경 (resolved였다면)
+            # 업데이트: last_seen_at 갱신, severity 업데이트, status를 active로 변경
+            # alert_count는 트리거가 자동으로 업데이트하므로 수동 증가 제거
             cursor.execute("""
                 UPDATE incidents 
-                SET alert_count = alert_count + 1,
-                    last_seen_at = %s,
+                SET last_seen_at = %s,
                     severity = %s,
                     status = 'active',
                     updated_at = %s
@@ -150,10 +157,11 @@ def find_or_create_incident(conn, incident_key: str, alert_info: Dict[str, Any])
                 datetime.now(),
                 incident_id
             ))
-            conn.commit()
+            # commit 제거: 호출자에서 처리
             return (incident_id, False)  # 기존 incident
         else:
             # 신규 생성
+            # 트리거가 중복 체크를 하지만, 애플리케이션 레벨에서도 한번 더 확인
             incident_id = generate_incident_id(incident_key)
             now = datetime.now()
             cursor.execute("""
@@ -174,9 +182,9 @@ def find_or_create_incident(conn, incident_key: str, alert_info: Dict[str, Any])
                 now,  # start_time
                 now,  # first_seen_at
                 now,  # last_seen_at
-                1
+                0  # 초기값 0, 트리거가 자동으로 업데이트
             ))
-            conn.commit()
+            # commit 제거: 호출자에서 처리
             return (incident_id, True)  # 신규 incident
 
 
@@ -234,7 +242,17 @@ async def grafana_webhook(request: Request):
     """
     try:
         payload = await request.json()
-        print(f"📥 Grafana webhook 수신: {json.dumps(payload, indent=2, ensure_ascii=False)}")
+        # 전체 페이로드를 여러 줄로 출력하여 잘림 방지
+        payload_str = json.dumps(payload, indent=2, ensure_ascii=False)
+        print(f"📥 Grafana webhook 수신 (전체 길이: {len(payload_str)} 문자)")
+        print("=" * 80)
+        # 각 줄을 개별적으로 출력하여 Docker 로그 버퍼 제한 회피
+        # sys.stdout을 직접 사용하여 버퍼링 방지
+        import sys
+        sys.stdout.write(payload_str)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        print("=" * 80)
         
         # Grafana webhook 형식 처리
         alerts = payload.get("alerts", [])
@@ -248,6 +266,9 @@ async def grafana_webhook(request: Request):
         results = []
         
         try:
+            # 트랜잭션 시작 (autocommit=False로 시작)
+            conn.autocommit(False)
+            
             for alert in alerts:
                 # 1. Alert 정보 추출
                 alert_info = extract_alert_info(alert)
@@ -257,14 +278,17 @@ async def grafana_webhook(request: Request):
                 print(f"🔑 Incident Key 계산: {incident_key}")
                 
                 # 3. Open Incident 찾기 또는 새로 생성
+                # SELECT FOR UPDATE로 Row Lock하여 동시성 문제 해결
                 incident_id, is_new_incident = find_or_create_incident(conn, incident_key, alert_info)
                 print(f"{'🆕 신규' if is_new_incident else '🔄 기존'} Incident: {incident_id} (key: {incident_key})")
                 
                 # 4. grafana_alerts에 원본 저장 (incident_id, incident_key 포함)
+                # 트리거가 alert_count를 자동으로 업데이트
                 alert_id = save_alert_to_db(conn, alert_info, alert, incident_id, incident_key)
                 print(f"✅ Alert 저장됨: alert_id={alert_id} → incident_id={incident_id}")
                 
                 # 5. Incident 정보 조회 (alert_count 등)
+                # 트리거가 업데이트한 alert_count 조회
                 with conn.cursor() as cursor:
                     cursor.execute(
                         "SELECT alert_count FROM incidents WHERE incident_id = %s",
@@ -283,7 +307,16 @@ async def grafana_webhook(request: Request):
                     "is_new_incident": is_new_incident,
                     "alert_count": alert_count
                 })
+            
+            # 전체 트랜잭션 커밋 (모든 alert 처리 완료 후)
+            conn.commit()
+            print(f"✅ 트랜잭션 커밋 완료: {len(results)}개 alert 처리")
         
+        except Exception as e:
+            # 에러 발생 시 롤백
+            conn.rollback()
+            print(f"❌ 트랜잭션 롤백: {e}")
+            raise
         finally:
             conn.close()
         
