@@ -79,6 +79,7 @@ def extract_alert_info(alert: Dict[str, Any]) -> Dict[str, Any]:
         "cluster": labels.get("cluster", ""),
         "namespace": labels.get("namespace", ""),
         "service": labels.get("service", labels.get("job", "")),
+        "service_category": labels.get("service_category", labels.get("category", "")),  # 서비스 대분류
         "phase": labels.get("phase", labels.get("environment", "")),
         "message": annotations.get("description", annotations.get("summary", "")),
         "labels": labels,
@@ -154,11 +155,12 @@ def find_or_create_incident(conn, incident_key: str, alert_info: Dict[str, Any])
         else:
             # 신규 생성
             incident_id = generate_incident_id(incident_key)
+            now = datetime.now()
             cursor.execute("""
                 INSERT INTO incidents 
                 (incident_id, incident_key, status, severity, phase, cluster, namespace, service, 
-                 first_seen_at, last_seen_at, alert_count)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 service_category, start_time, first_seen_at, last_seen_at, alert_count)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 incident_id,
                 incident_key,
@@ -168,8 +170,10 @@ def find_or_create_incident(conn, incident_key: str, alert_info: Dict[str, Any])
                 alert_info["cluster"],
                 alert_info["namespace"],
                 alert_info["service"],
-                datetime.now(),
-                datetime.now(),
+                alert_info.get("service_category"),  # 서비스 대분류 (labels에서 추출)
+                now,  # start_time
+                now,  # first_seen_at
+                now,  # last_seen_at
                 1
             ))
             conn.commit()

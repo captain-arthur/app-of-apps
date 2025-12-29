@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS incidents (
     cluster VARCHAR(255) NULL COMMENT '클러스터 구분',
     namespace VARCHAR(255) NULL COMMENT '네임스페이스 구분',
     service VARCHAR(255) NULL COMMENT '서비스 구분',
-    first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '최초 발생 시각',
+    service_category VARCHAR(255) NULL COMMENT '서비스 대분류',
+    start_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '알람 발생 시각 (최초 발생 시각)',
+    first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '최초 발생 시각 (start_time과 동일)',
     last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '최근 발생 시각',
     alert_count INT NOT NULL DEFAULT 0 COMMENT '연결된 알람 개수',
     acknowledged_time DATETIME NULL COMMENT '담당자가 인지한 시각',
@@ -46,7 +48,8 @@ CREATE TABLE IF NOT EXISTS incidents (
     INDEX idx_incident_key (incident_key),
     INDEX idx_status (status),
     INDEX idx_last_seen_at (last_seen_at),
-    INDEX idx_cluster_namespace_service (cluster, namespace, service)
+    INDEX idx_cluster_namespace_service (cluster, namespace, service),
+    INDEX idx_service_category (service_category)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사건 관리 테이블';
 
 -- incident_alert_links 테이블 제거 (단순화)
