@@ -10,7 +10,7 @@ configs:
   # -- GitHub 레포지토리 등록
   repositories:
     app-of-apps:
-      url: https://github.com/captain-arthur/app-of-apps.git
+      url: https://github.com/captain-arthur/ol-devops-api-test.git
       type: git
 
 # -- Argo CD 서버 서비스 설정
