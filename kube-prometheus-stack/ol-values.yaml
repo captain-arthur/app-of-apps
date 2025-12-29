@@ -13,8 +13,6 @@ grafana:
   service:
     # -- 서비스 타입을 NodePort로 설정
     type: NodePort
-    # -- NodePort 포트 (기본 서비스 포트: 80)
-    port: 80
 
   # -- Grafana 설정 (HTTP 프로토콜 명시)
   grafana.ini:
