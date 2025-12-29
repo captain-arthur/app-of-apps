@@ -42,28 +42,32 @@ def get_db_connection():
 
 def calculate_incident_key(labels: Dict[str, Any]) -> str:
     """
-    Incident Key 계산 (유형 키, 고정)
-    (rule_uid or alertname) + cluster + namespace + service(job) + phase(environment)
+    Incident Key 계산 (사건 유형 키)
+    rule_uid (없으면 alertname) | cluster | namespace | phase
     → |로 연결 → SHA256 → 앞 16자
+    
+    주의: service, pod, node, instance는 포함하지 않음
+    (알람 폭발 방지 및 namespace 단위 운영)
     """
     rule_uid = labels.get("rule_uid", labels.get("alertname", "unknown"))
     cluster = labels.get("cluster", "default")
     namespace = labels.get("namespace", "default")
-    service = labels.get("service", labels.get("job", "unknown"))
     phase = labels.get("phase", labels.get("environment", "default"))
     
-    fingerprint_str = f"{rule_uid}|{cluster}|{namespace}|{service}|{phase}"
+    fingerprint_str = f"{rule_uid}|{cluster}|{namespace}|{phase}"
     incident_key = hashlib.sha256(fingerprint_str.encode()).hexdigest()[:16]
     return incident_key
 
 
-def generate_incident_id(incident_key: str) -> str:
+def generate_incident_id() -> str:
     """
     Incident ID 생성 (에피소드 ID, 매번 새로 생성)
-    형식: INC-YYYYMMDDHHMMSS-{incident_key}
+    형식: INC-YYYYMMDDHHMMSS-{random_hex}
+    이번에 대응한 사건(episode)의 고유 ID
     """
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    return f"INC-{timestamp}-{incident_key}"
+    random_suffix = hashlib.sha256(f"{timestamp}{os.urandom(16)}".encode()).hexdigest()[:8]
+    return f"INC-{timestamp}-{random_suffix}"
 
 
 def extract_alert_info(alert: Dict[str, Any]) -> Dict[str, Any]:
@@ -162,7 +166,7 @@ def find_or_create_incident(conn, incident_key: str, alert_info: Dict[str, Any])
         else:
             # 신규 생성
             # 트리거가 중복 체크를 하지만, 애플리케이션 레벨에서도 한번 더 확인
-            incident_id = generate_incident_id(incident_key)
+            incident_id = generate_incident_id()
             now = datetime.now()
             cursor.execute("""
                 INSERT INTO incidents 
@@ -273,7 +277,8 @@ async def grafana_webhook(request: Request):
                 # 1. Alert 정보 추출
                 alert_info = extract_alert_info(alert)
                 
-                # 2. Incident Key 계산 (유형 키)
+                # 2. Incident Key 계산 (사건 유형 키)
+                # rule_uid | cluster | namespace | phase (service, pod, node 제외)
                 incident_key = calculate_incident_key(alert_info["labels"])
                 print(f"🔑 Incident Key 계산: {incident_key}")
                 

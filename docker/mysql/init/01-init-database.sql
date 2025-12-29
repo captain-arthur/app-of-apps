@@ -3,29 +3,11 @@ CREATE DATABASE IF NOT EXISTS observer CHARACTER SET utf8mb4 COLLATE utf8mb4_uni
 
 USE observer;
 
--- 1. grafana_alerts 테이블: 원본 알람 저장 (무조건 insert)
-CREATE TABLE IF NOT EXISTS grafana_alerts (
-    alert_id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '알람 고유 ID',
-    incident_id VARCHAR(64) NOT NULL COMMENT '사건 ID (FK → incidents.incident_id)',
-    incident_key VARCHAR(16) NOT NULL COMMENT '유형 키 (조회 편의/검증용)',
-    received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '수신 시각',
-    state VARCHAR(32) NULL COMMENT 'firing / resolved',
-    rule_uid VARCHAR(255) NULL COMMENT 'Grafana Rule UID',
-    alertname VARCHAR(255) NULL COMMENT '알람 이름',
-    message TEXT NULL COMMENT 'Slack에 전송되는 본문',
-    labels JSON NULL COMMENT '알람 라벨 (JSON)',
-    annotations JSON NULL COMMENT '알람 어노테이션 (JSON)',
-    raw_payload JSON NULL COMMENT '원본 Grafana payload 전체',
-    INDEX idx_incident_id (incident_id),
-    INDEX idx_incident_key_received_at (incident_key, received_at),
-    INDEX idx_received_at (received_at),
-    FOREIGN KEY (incident_id) REFERENCES incidents(incident_id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Grafana 원본 알람 저장';
-
--- 2. incidents 테이블: 사건 관리 (사람이 관리하는 상태 객체)
+-- 1. incidents 테이블: 사건 관리 (사람이 관리하는 상태 객체)
+-- grafana_alerts가 FK로 참조하므로 먼저 생성
 CREATE TABLE IF NOT EXISTS incidents (
-    incident_id VARCHAR(64) PRIMARY KEY COMMENT '에피소드 ID (INC-{timestamp}-{incident_key})',
-    incident_key VARCHAR(16) NOT NULL COMMENT '유형 키 (rule_uid|cluster|namespace|service|phase 해시)',
+    incident_id VARCHAR(64) PRIMARY KEY COMMENT '에피소드 ID (이번에 대응한 사건의 고유 ID)',
+    incident_key VARCHAR(16) NOT NULL COMMENT '사건 유형 키 (rule_uid|cluster|namespace|phase 해시)',
     status ENUM('active', 'acknowledged', 'resolved') NOT NULL DEFAULT 'active' COMMENT '현재상태',
     severity VARCHAR(50) NULL COMMENT '알람 등급',
     phase VARCHAR(50) NULL COMMENT '환경구분',
@@ -54,6 +36,25 @@ CREATE TABLE IF NOT EXISTS incidents (
     -- WHERE incident_key = ? AND status IN (...) ORDER BY last_seen_at DESC 쿼리 최적화
     INDEX idx_incident_key_status_last_seen (incident_key, status, last_seen_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='사건 관리 테이블';
+
+-- 2. grafana_alerts 테이블: 원본 알람 저장 (무조건 insert)
+CREATE TABLE IF NOT EXISTS grafana_alerts (
+    alert_id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '알람 고유 ID',
+    incident_id VARCHAR(64) NOT NULL COMMENT '사건 ID (FK → incidents.incident_id)',
+    incident_key VARCHAR(16) NOT NULL COMMENT '사건 유형 키 (조회 편의/검증용)',
+    received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '수신 시각',
+    state VARCHAR(32) NULL COMMENT 'firing / resolved',
+    rule_uid VARCHAR(255) NULL COMMENT 'Grafana Rule UID',
+    alertname VARCHAR(255) NULL COMMENT '알람 이름',
+    message TEXT NULL COMMENT 'Slack에 전송되는 본문',
+    labels JSON NULL COMMENT '알람 라벨 (JSON)',
+    annotations JSON NULL COMMENT '알람 어노테이션 (JSON)',
+    raw_payload JSON NULL COMMENT '원본 Grafana payload 전체',
+    INDEX idx_incident_id (incident_id),
+    INDEX idx_incident_key_received_at (incident_key, received_at),
+    INDEX idx_received_at (received_at),
+    FOREIGN KEY (incident_id) REFERENCES incidents(incident_id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Grafana 원본 알람 저장';
 
 -- incident_alert_links 테이블 제거 (단순화)
 -- grafana_alerts.incident_id FK로 직접 연결 관리
