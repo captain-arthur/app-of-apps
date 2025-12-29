@@ -1,0 +1,45 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: Test Alert Group
+    folder: Alerting
+    interval: 10s
+    rules:
+      - uid: test-alert-rule
+        title: 장애 알람 테스트
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: '-100'
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: '-100'
+              expression: "1 == 1"
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+              type: math
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 0s
+        annotations:
+          description: "장애 알람 테스트용 알람입니다. 이 알람은 항상 트리거됩니다."
+          summary: "장애 알람 테스트"
+        labels:
+          severity: critical
+          team: devops
+

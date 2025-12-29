@@ -1,0 +1,21 @@
+## 로컬 개발용 설정 파일 예제
+## 이 파일을 복사하여 ol-values.local.yaml로 만들고 웹훅 URL을 입력하세요
+## ol-values.local.yaml은 .gitignore에 포함되어 Git에 커밋되지 않습니다
+
+grafana:
+  alerting:
+    contactpoints.yaml:
+      secret:
+        apiVersion: 1
+        contactPoints:
+          - orgId: 1
+            name: Slack Alert Channel
+            receivers:
+              - uid: slack-receiver
+                type: slack
+                settings:
+                  # 여기에 실제 Slack 웹훅 URL을 입력하세요
+                  url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+                  text: '{{ `{{ template "default.message" . }}` }}'
+                  title: '{{ `{{ template "default.title" . }}` }}'
+

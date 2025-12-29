@@ -1,0 +1,19 @@
+# 로컬 설정 파일 (웹훅 URL 등 시크릿 포함)
+kube-prometheus-stack/ol-values.local.yaml
+*.local.yaml
+
+# 환경 변수 파일
+.env
+.env.local
+
+# IDE 설정
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS 파일
+.DS_Store
+Thumbs.db
+

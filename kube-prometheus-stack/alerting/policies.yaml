@@ -1,0 +1,18 @@
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: slack-receiver
+    groupBy:
+      - alertname
+      - severity
+    groupWait: 10s
+    groupInterval: 10s
+    repeatInterval: 12h
+    routes:
+      - receiver: slack-receiver
+        continue: true
+        matchers:
+          - label: severity
+            match: "="
+            value: critical
+

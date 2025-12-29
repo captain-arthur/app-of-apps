@@ -1,0 +1,15 @@
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: Slack Alert Channel
+    receivers:
+      - uid: slack-receiver
+        type: slack
+        settings:
+          # 웹훅 URL은 Kubernetes Secret으로 관리됩니다
+          # 실제 URL은 ol-values.yaml에서 secret으로 설정하거나
+          # Kubernetes Secret을 직접 생성하여 사용하세요
+          url: ""
+          text: '{{ `{{ template "default.message" . }}` }}'
+          title: '{{ `{{ template "default.title" . }}` }}'
+

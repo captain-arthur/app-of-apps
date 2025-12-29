@@ -22,7 +22,113 @@ grafana:
     server:
       # -- HTTP 프로토콜 사용 명시
       protocol: http
-    # -- 사용자 기본 시간대 설정
-    users:
-      default_theme: dark
+  # -- 사용자 기본 시간대 설정
+  users:
+    default_theme: dark
+
+  # -- Alerting 리소스 provisioning (재시작 후에도 유지)
+  # 참고: contactpoints.yaml은 secret으로 관리됩니다 (웹훅 URL 포함)
+  alerting:
+    contactpoints.yaml:
+      secret:
+        apiVersion: 1
+        contactPoints:
+          - orgId: 1
+            name: Slack Alert Channel
+            receivers:
+              - uid: slack-receiver
+                type: slack
+                settings:
+                  # 웹훅 URL 설정 방법:
+                  # 1. 로컬 개발: ol-values.local.yaml 파일을 생성하여 url 필드에 입력
+                  #    (ol-values.local.yaml.example 참고)
+                  # 2. 프로덕션: Kubernetes Secret 사용 (SLACK_WEBHOOK_SETUP.md 참고)
+                  url: ""  # ol-values.local.yaml에서 오버라이드하거나 Kubernetes Secret 사용
+                  text: '{{ `{{ template "default.message" . }}` }}'
+                  title: '{{ `{{ template "default.title" . }}` }}'
+    
+    rules.yaml:
+      apiVersion: 1
+      groups:
+        - orgId: 1
+          name: Test Alert Group
+          folder: Alerting
+          interval: 10s
+          rules:
+            - uid: test-alert-rule
+              title: 장애 알람 테스트
+              condition: A
+              data:
+                - refId: A
+                  datasourceUid: '-100'
+                  model:
+                    conditions:
+                      - evaluator:
+                          params:
+                            - 1
+                          type: gt
+                        operator:
+                          type: and
+                        query:
+                          params:
+                            - A
+                        reducer:
+                          type: last
+                        type: query
+                    datasource:
+                      type: __expr__
+                      uid: '-100'
+                    expression: "1 == 1"
+                    intervalMs: 1000
+                    maxDataPoints: 43200
+                    refId: A
+                    type: math
+              noDataState: Alerting
+              execErrState: Alerting
+              for: 0s
+              annotations:
+                description: "장애 알람 테스트용 알람입니다. 이 알람은 항상 트리거됩니다."
+                summary: "장애 알람 테스트"
+              labels:
+                severity: critical
+                team: devops
+    
+    policies.yaml:
+      apiVersion: 1
+      policies:
+        - orgId: 1
+          receiver: slack-receiver
+          groupBy:
+            - alertname
+            - severity
+          groupWait: 10s
+          groupInterval: 10s
+          repeatInterval: 12h
+          routes:
+            - receiver: slack-receiver
+              continue: true
+              matchers:
+                - label: severity
+                  match: "="
+                  value: critical
+
+  # -- 대시보드 Provider 설정
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+  # -- 대시보드 provisioning (재시작 후에도 유지)
+  dashboards:
+    default:
+      test-alert-dashboard:
+        file: dashboards/test-alert-dashboard.json
 
