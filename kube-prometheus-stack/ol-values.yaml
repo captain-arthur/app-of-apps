@@ -27,11 +27,12 @@ grafana:
     default_theme: dark
 
   # -- 추가 데이터소스 (MySQL)
+  # MySQL은 Docker Compose로 호스트에서 실행 중이므로 host.docker.internal 사용
   additionalDataSources:
     - name: MySQL Observer
       type: mysql
       uid: mysql-observer
-      url: 127.0.0.1:3306
+      url: host.docker.internal:3306
       user: observer
       secureJsonData:
         password: observer123
