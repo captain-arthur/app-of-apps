@@ -9,8 +9,8 @@ from typing import Dict, Any, Optional
 
 import httpx
 import pymysql
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request, HTTPException, Header
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -25,6 +25,22 @@ DB_USER = os.getenv("DB_USER", "observer")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "observer123")
 DB_NAME = os.getenv("DB_NAME", "observer")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
+SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN", "")  # Socket Mode용
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")  # Socket Mode에서 메시지 전송용 (선택사항)
+SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN", "")  # Socket Mode용
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")  # Socket Mode에서 메시지 전송용 (선택사항)
+
+# Slack 관련 모듈 import (환경 변수 설정 후)
+import slack_sender
+import slack_interactions
+from slack_sender import create_incident_card, send_incident_card, send_thread_reply
+from slack_interactions import verify_slack_signature, parse_interaction_payload, extract_button_action
+from incident_service import acknowledge_incident, resolve_incident, mute_incident, check_silence, get_incident_info
+
+# 모듈 변수 설정
+slack_sender.SLACK_WEBHOOK_URL = SLACK_WEBHOOK_URL
+slack_interactions.SLACK_SIGNING_SECRET = SLACK_SIGNING_SECRET
 
 
 def get_db_connection():
@@ -196,46 +212,45 @@ def find_or_create_incident(conn, incident_key: str, alert_info: Dict[str, Any])
 # link_alert_to_incident 함수 제거 (grafana_alerts.incident_id FK로 직접 연결)
 
 
-def send_to_slack(alert_info: Dict[str, Any], incident_id: str, alert_count: int, is_new_incident: bool):
-    """Slack으로 알람 전송"""
+def send_to_slack(alert_info: Dict[str, Any], incident_id: str, incident_key: str, 
+                  alert_count: int, is_new_incident: bool, start_time: datetime) -> Optional[str]:
+    """
+    Slack으로 Incident 카드 전송 (Block Kit)
+    
+    Returns: Slack 메시지 timestamp (thread_ts) 또는 None
+    """
     if not SLACK_WEBHOOK_URL:
         print("⚠️  SLACK_WEBHOOK_URL이 설정되지 않았습니다. Slack 전송을 건너뜁니다.")
-        return
+        return None
     
-    severity_emoji = {
-        "critical": "🚨",
-        "warning": "⚠️",
-        "info": "ℹ️"
-    }.get(alert_info["severity"].lower(), "📢")
-    
-    status_text = "🆕 신규 사건" if is_new_incident else "🔄 기존 사건"
-    
-    message = f"""{severity_emoji} [{alert_info['severity'].upper()}] {alert_info['alertname']}
-
-{status_text}
-Incident ID: `{incident_id}`
-Alerts linked: {alert_count}
-
-**상세 정보:**
-• Cluster: {alert_info['cluster'] or 'N/A'}
-• Namespace: {alert_info['namespace'] or 'N/A'}
-• Service: {alert_info['service'] or 'N/A'}
-• Phase: {alert_info['phase'] or 'N/A'}
-
-**메시지:**
-{alert_info['message'] or 'No description'}
-"""
-    
+    # Incident 정보 조회
+    conn = get_db_connection()
     try:
-        response = httpx.post(
-            SLACK_WEBHOOK_URL,
-            json={"text": message},
-            timeout=5.0
+        incident_info = get_incident_info(conn, incident_id)
+        if not incident_info:
+            print(f"⚠️  Incident 정보를 찾을 수 없습니다: {incident_id}")
+            return None
+        
+        # Block Kit 카드 생성
+        blocks = create_incident_card(
+            incident_id=incident_id,
+            incident_key=incident_key,
+            status=incident_info["status"],
+            severity=alert_info["severity"],
+            cluster=alert_info["cluster"] or "",
+            namespace=alert_info["namespace"] or "",
+            phase=alert_info["phase"] or "",
+            service=alert_info["service"] or "",
+            alert_count=alert_count,
+            start_time=start_time,
+            is_new_incident=is_new_incident
         )
-        response.raise_for_status()
-        print(f"✅ Slack 전송 성공: {incident_id}")
-    except Exception as e:
-        print(f"❌ Slack 전송 실패: {e}")
+        
+        # Slack 전송
+        ts = send_incident_card(blocks)
+        return ts
+    finally:
+        conn.close()
 
 
 @app.post("/webhook/grafana")
@@ -302,8 +317,25 @@ async def grafana_webhook(request: Request):
                     incident = cursor.fetchone()
                     alert_count = incident["alert_count"] if incident else 1
                 
-                # 6. Slack 전송
-                send_to_slack(alert_info, incident_id, alert_count, is_new_incident)
+                # 6. Mute 체크 및 Slack 전송
+                # Mute 기간 중이면 Slack 전송 스킵 (DB 저장은 정상 수행)
+                is_muted = check_silence(conn, incident_key)
+                if not is_muted:
+                    # Incident 정보 조회 (start_time 등)
+                    incident_info = get_incident_info(conn, incident_id)
+                    start_time = incident_info["start_time"] if incident_info else datetime.now()
+                    
+                    slack_ts = send_to_slack(
+                        alert_info, 
+                        incident_id, 
+                        incident_key,
+                        alert_count, 
+                        is_new_incident,
+                        start_time
+                    )
+                    print(f"📤 Slack 전송: ts={slack_ts}")
+                else:
+                    print(f"🔕 Mute 기간 중: Slack 전송 스킵 (incident_key: {incident_key})")
                 
                 results.append({
                     "alert_id": alert_id,
@@ -349,6 +381,119 @@ async def health_check():
         return {"status": "unhealthy", "error": str(e)}
 
 
+@app.post("/slack/interactions")
+async def slack_interactions(
+    request: Request,
+    x_slack_signature: str = Header(None, alias="X-Slack-Signature"),
+    x_slack_request_timestamp: str = Header(None, alias="X-Slack-Request-Timestamp")
+):
+    """
+    Slack 인터랙션 처리 (버튼 클릭 등)
+    """
+    try:
+        # 요청 본문 읽기
+        body_bytes = await request.body()
+        body_str = body_bytes.decode('utf-8')
+        
+        # 서명 검증
+        if x_slack_signature and x_slack_request_timestamp:
+            if not verify_slack_signature(x_slack_signature, x_slack_request_timestamp, body_str, SLACK_SIGNING_SECRET):
+                print("❌ Slack 서명 검증 실패")
+                return Response(status_code=401, content="Invalid signature")
+        
+        # Payload 파싱
+        payload = parse_interaction_payload(body_str)
+        if not payload:
+            return Response(status_code=400, content="Invalid payload")
+        
+        # 버튼 액션 추출
+        action_info = extract_button_action(payload)
+        if not action_info:
+            return Response(status_code=400, content="No action found")
+        
+        action_id = action_info["action_id"]
+        value = action_info["value"]
+        user = action_info["user"]
+        message_ts = action_info.get("message_ts")
+        channel = action_info.get("channel")
+        
+        incident_id = value.get("incident_id")
+        incident_key = value.get("incident_key")
+        action = value.get("action")
+        
+        print(f"🔘 Slack 인터랙션: {action_id} - incident_id={incident_id}, user={user.get('name', 'unknown')}")
+        
+        # DB 연결
+        conn = get_db_connection()
+        success = False
+        reply_text = ""
+        
+        try:
+            conn.autocommit(False)
+            
+            if action == "ack":
+                success = acknowledge_incident(conn, incident_id, user.get("name", user.get("id", "unknown")))
+                if success:
+                    reply_text = f"👀 *Incident ACK 처리됨*\n- by @{user.get('name', 'unknown')}\n- at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            elif action == "resolve":
+                success = resolve_incident(conn, incident_id, user.get("name", user.get("id", "unknown")))
+                if success:
+                    reply_text = f"✅ *Incident RESOLVED*\n- by @{user.get('name', 'unknown')}\n- at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            elif action.startswith("mute_"):
+                # mute_30m, mute_2h, mute_24h
+                duration_map = {
+                    "mute_30m": 30,
+                    "mute_2h": 120,
+                    "mute_24h": 1440
+                }
+                duration_minutes = duration_map.get(action, 30)
+                duration_text = {
+                    "mute_30m": "30분",
+                    "mute_2h": "2시간",
+                    "mute_24h": "24시간"
+                }.get(action, "30분")
+                
+                success = mute_incident(conn, incident_key, duration_minutes, user.get("name", user.get("id", "unknown")))
+                if success:
+                    reply_text = f"🔕 *Incident 알림 음소거*\n- duration: {duration_text}\n- by @{user.get('name', 'unknown')}"
+            
+            else:
+                return Response(status_code=400, content=f"Unknown action: {action}")
+            
+            if success:
+                conn.commit()
+            else:
+                conn.rollback()
+                return Response(status_code=500, content="Failed to process action")
+        
+        except Exception as e:
+            conn.rollback()
+            print(f"❌ 인터랙션 처리 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response(status_code=500, content=str(e))
+        finally:
+            conn.close()
+        
+        # Slack 스레드에 댓글 추가
+        if message_ts and reply_text:
+            send_thread_reply(message_ts, reply_text, channel)
+        
+        # Slack에 즉시 응답 (3초 이내)
+        return JSONResponse(content={
+            "response_type": "ephemeral",
+            "text": "처리되었습니다."
+        })
+    
+    except Exception as e:
+        print(f"❌ 오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response(status_code=500, content=str(e))
+
+
 @app.get("/")
 async def root():
     """루트 엔드포인트"""
@@ -357,9 +502,20 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "webhook": "/webhook/grafana",
+            "slack_interactions": "/slack/interactions",
             "health": "/health"
         }
     }
+
+
+# Socket Mode 클라이언트 초기화 (선택사항)
+socket_mode_client = None
+if SLACK_APP_TOKEN:
+    try:
+        from slack_socket import start_socket_mode_client
+        socket_mode_client = start_socket_mode_client(SLACK_APP_TOKEN, SLACK_BOT_TOKEN)
+    except Exception as e:
+        print(f"⚠️  Socket Mode 초기화 실패 (HTTP 방식으로 계속 작동): {e}")
 
 
 if __name__ == "__main__":

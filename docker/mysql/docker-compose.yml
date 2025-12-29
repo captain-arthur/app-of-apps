@@ -40,6 +40,9 @@ services:
       DB_PASSWORD: observer123
       DB_NAME: observer
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       TZ: Asia/Seoul
     depends_on:
       mysql:
