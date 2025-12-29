@@ -41,6 +41,7 @@ from grafana_silence import mute_incident_via_grafana
 
 # 모듈 변수 설정
 slack_sender.SLACK_WEBHOOK_URL = SLACK_WEBHOOK_URL
+slack_sender.SLACK_BOT_TOKEN = SLACK_BOT_TOKEN
 slack_interactions.SLACK_SIGNING_SECRET = SLACK_SIGNING_SECRET
 
 
@@ -220,8 +221,9 @@ def send_to_slack(alert_info: Dict[str, Any], incident_id: str, incident_key: st
     
     Returns: Slack 메시지 timestamp (thread_ts) 또는 None
     """
-    if not SLACK_WEBHOOK_URL:
-        print("⚠️  SLACK_WEBHOOK_URL이 설정되지 않았습니다. Slack 전송을 건너뜁니다.")
+    # SLACK_WEBHOOK_URL 또는 SLACK_BOT_TOKEN 중 하나는 있어야 함
+    if not SLACK_WEBHOOK_URL and not SLACK_BOT_TOKEN:
+        print("⚠️  SLACK_WEBHOOK_URL 또는 SLACK_BOT_TOKEN이 설정되지 않았습니다. Slack 전송을 건너뜁니다.")
         return None
     
     # Incident 정보 조회

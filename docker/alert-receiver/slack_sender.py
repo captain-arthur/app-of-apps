@@ -5,8 +5,11 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Optional
 import httpx
+import os
 
 SLACK_WEBHOOK_URL = None  # app.py에서 설정
+SLACK_BOT_TOKEN = None  # app.py에서 설정
+SLACK_CHANNEL = os.getenv("SLACK_CHANNEL", "C0A4LAEF6P8")  # 기본 채널 ID
 
 
 def create_incident_card(incident_id: str, incident_key: str, status: str, severity: str,
@@ -189,42 +192,64 @@ def send_incident_card(blocks: Dict[str, Any], channel: str = None) -> Optional[
     
     Returns: Slack 메시지 timestamp (thread_ts로 사용)
     """
-    if not SLACK_WEBHOOK_URL:
-        print("⚠️  SLACK_WEBHOOK_URL이 설정되지 않았습니다. Slack 전송을 건너뜁니다.")
-        return None
+    # 채널 ID 설정 (기본값 사용)
+    target_channel = channel or SLACK_CHANNEL
     
-    payload = {
-        "blocks": blocks["blocks"]
-    }
-    
-    if channel:
-        payload["channel"] = channel
-    
-    try:
-        response = httpx.post(
-            SLACK_WEBHOOK_URL,
-            json=payload,
-            timeout=5.0
-        )
-        response.raise_for_status()
-        # Slack Incoming Webhook은 성공 시 "ok" 문자열 또는 빈 응답을 반환할 수 있음
-        # 또는 JSON 응답에 "ts"가 포함될 수 있음
+    # SLACK_WEBHOOK_URL이 있으면 Webhook 사용, 없으면 SLACK_BOT_TOKEN으로 WebClient 사용
+    if SLACK_WEBHOOK_URL:
+        payload = {
+            "blocks": blocks["blocks"]
+        }
+        
+        if target_channel:
+            payload["channel"] = target_channel
+        
         try:
-            result = response.json()
-            ts = result.get("ts") if isinstance(result, dict) else None
-        except:
-            # JSON이 아닌 경우 (예: "ok" 문자열), 응답 텍스트에서 확인
-            text = response.text.strip()
-            if text == "ok" or not text:
-                ts = None  # Incoming Webhook은 ts를 반환하지 않음
-            else:
-                ts = None
-        print(f"✅ Slack Incident 카드 전송 성공")
-        return ts
-    except Exception as e:
-        print(f"❌ Slack 전송 실패: {e}")
-        import traceback
-        traceback.print_exc()
+            response = httpx.post(
+                SLACK_WEBHOOK_URL,
+                json=payload,
+                timeout=5.0
+            )
+            response.raise_for_status()
+            # Slack Incoming Webhook은 성공 시 "ok" 문자열 또는 빈 응답을 반환할 수 있음
+            try:
+                result = response.json()
+                ts = result.get("ts") if isinstance(result, dict) else None
+            except:
+                text = response.text.strip()
+                if text == "ok" or not text:
+                    ts = None
+                else:
+                    ts = None
+            print(f"✅ Slack Incident 카드 전송 성공 (Webhook)")
+            return ts
+        except Exception as e:
+            print(f"❌ Slack 전송 실패 (Webhook): {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    elif SLACK_BOT_TOKEN:
+        # WebClient 사용 (Socket Mode)
+        try:
+            from slack_sdk import WebClient
+            web_client = WebClient(token=SLACK_BOT_TOKEN)
+            
+            result = web_client.chat_postMessage(
+                channel=target_channel,
+                blocks=blocks["blocks"]
+            )
+            
+            ts = result.get("ts") if result else None
+            print(f"✅ Slack Incident 카드 전송 성공 (WebClient): ts={ts}")
+            return ts
+        except Exception as e:
+            print(f"❌ Slack 전송 실패 (WebClient): {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    else:
+        print("⚠️  SLACK_WEBHOOK_URL 또는 SLACK_BOT_TOKEN이 설정되지 않았습니다. Slack 전송을 건너뜁니다.")
         return None
 
 

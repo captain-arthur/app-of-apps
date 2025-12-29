@@ -301,18 +301,192 @@ def process_incident_action(action_type: str, incident_id: str, incident_key: st
             traceback.print_exc()
 
 
+def create_resolve_modal(incident_id: str, incident_key: str, channel: str = None, message_ts: str = None) -> dict:
+    """
+    Resolve 모달 생성
+    """
+    return {
+        "type": "modal",
+        "title": {
+            "type": "plain_text",
+            "text": "Incident Resolve"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Resolve"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Cancel"
+        },
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Incident ID:* `{incident_id}`\n*Signature:* `{incident_key}`"
+                }
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "input",
+                "block_id": "action_taken",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "action_input",
+                    "multiline": True,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "조치 내용을 입력하세요 (예: 서비스 재시작, 설정 변경 등)"
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "조치 내용"
+                },
+                "optional": True
+            },
+            {
+                "type": "input",
+                "block_id": "root_cause",
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "root_cause_input",
+                    "multiline": True,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "근본 원인을 입력하세요"
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "근본 원인"
+                },
+                "optional": True
+            }
+        ],
+        "private_metadata": json.dumps({
+            "incident_id": incident_id,
+            "incident_key": incident_key,
+            "channel": channel,
+            "message_ts": message_ts
+        })
+    }
+
+
+def handle_view_submission(client: SocketModeClient, req: SocketModeRequest):
+    """
+    View Submission (모달 제출) 처리
+    """
+    response = SocketModeResponse(envelope_id=req.envelope_id)
+    
+    payload = req.payload
+    view = payload.get("view", {})
+    private_metadata = view.get("private_metadata", "{}")
+    
+    try:
+        metadata = json.loads(private_metadata)
+        incident_id = metadata.get("incident_id")
+        incident_key = metadata.get("incident_key")
+        channel = metadata.get("channel")
+        message_ts = metadata.get("message_ts")
+        user = payload.get("user", {})
+        
+        # 입력값 추출
+        values = view.get("state", {}).get("values", {})
+        action_taken = values.get("action_taken", {}).get("action_input", {}).get("value", "")
+        root_cause = values.get("root_cause", {}).get("root_cause_input", {}).get("value", "")
+        
+        print(f"📝 모달 제출: incident_id={incident_id}, action_taken={action_taken[:50]}..., root_cause={root_cause[:50]}...")
+        
+        # DB 연결
+        conn = get_db_connection()
+        try:
+            conn.autocommit(False)
+            
+            # Resolve 처리 + 입력값 저장
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE incidents 
+                    SET status = 'resolved',
+                        resolved_time = %s,
+                        resolved_by = %s,
+                        action_taken = %s,
+                        root_cause = %s,
+                        updated_at = %s
+                    WHERE incident_id = %s
+                """, (
+                    datetime.now(),
+                    user.get("name", user.get("id", "unknown")),
+                    action_taken if action_taken else None,
+                    root_cause if root_cause else None,
+                    datetime.now(),
+                    incident_id
+                ))
+            
+            conn.commit()
+            print(f"✅ Incident Resolve 완료: {incident_id}")
+            
+            # 원본 메시지 스레드에 댓글 추가
+            if channel and message_ts and SLACK_BOT_TOKEN:
+                try:
+                    reply_text = f"✅ *Incident RESOLVED*\n- by @{user.get('name', 'unknown')}\n- at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    if action_taken:
+                        reply_text += f"\n- *조치 내용:* {action_taken[:200]}"
+                    if root_cause:
+                        reply_text += f"\n- *근본 원인:* {root_cause[:200]}"
+                    
+                    web_client = WebClient(token=SLACK_BOT_TOKEN)
+                    web_client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=message_ts,
+                        text=reply_text
+                    )
+                    print(f"✅ Slack 스레드 댓글 전송 성공: {message_ts}")
+                except Exception as e:
+                    print(f"❌ Slack 스레드 댓글 전송 실패: {e}")
+            
+            # 성공 응답
+            response.response_action = "clear"
+            
+        except Exception as e:
+            conn.rollback()
+            print(f"❌ 모달 제출 처리 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            # 에러 응답
+            response.response_action = "errors"
+            response.errors = {
+                "action_taken": "처리 중 오류가 발생했습니다."
+            }
+        finally:
+            conn.close()
+    
+    except Exception as e:
+        print(f"❌ 모달 제출 파싱 실패: {e}")
+        response.response_action = "errors"
+        response.errors = {
+            "action_taken": "요청을 처리할 수 없습니다."
+        }
+    
+    client.send_socket_mode_response(response)
+
+
 def handle_interactive_components(client: SocketModeClient, req: SocketModeRequest):
     """
     Interactive Components (버튼 클릭) 처리
     """
     print(f"📥 Socket Mode 요청 수신: type={req.type}, envelope_id={req.envelope_id}")
     
-    # Acknowledge the request
-    response = SocketModeResponse(envelope_id=req.envelope_id)
-    client.send_socket_mode_response(response)
-    
     # Parse payload
     payload = req.payload
+    
+    # view_submission 처리 (모달 제출)
+    if payload.get("type") == "view_submission":
+        handle_view_submission(client, req)
+        return
     
     # reaction_added 이벤트는 별도 핸들러로
     if req.type == "events_api":
@@ -323,8 +497,17 @@ def handle_interactive_components(client: SocketModeClient, req: SocketModeReque
     
     print(f"📦 Payload type: {payload.get('type')}")
     
+    # trigger_id는 req 객체에 있을 수도 있음
+    trigger_id_from_req = getattr(req, 'trigger_id', None)
+    print(f"🔍 trigger_id 확인 (req): {trigger_id_from_req}")
+    print(f"🔍 trigger_id 확인 (payload): {payload.get('trigger_id')}")
+    print(f"📦 Payload keys: {list(payload.keys())[:20]}")
+    
     if payload.get("type") != "block_actions":
         print(f"⚠️  block_actions가 아님: {payload.get('type')}")
+        # Acknowledge the request
+        response = SocketModeResponse(envelope_id=req.envelope_id)
+        client.send_socket_mode_response(response)
         return
     
     actions = payload.get("actions", [])
@@ -356,6 +539,53 @@ def handle_interactive_components(client: SocketModeClient, req: SocketModeReque
     message_ts = payload.get("message", {}).get("ts")
     
     print(f"🔘 Slack 인터랙션 (Socket Mode): {action_id} - incident_id={incident_id}, user={user.get('name', 'unknown')}")
+    print(f"🔍 action_type 확인: {action_type}, type={type(action_type)}")
+    
+    # Resolve 버튼 클릭 시 모달 열기 (응답 전에 처리해야 함!)
+    if action_type == "resolve":
+        print(f"✅ action_type이 'resolve'입니다. 모달 열기 시작...")
+        
+        # trigger_id는 여러 위치에 있을 수 있음
+        trigger_id = (
+            payload.get("trigger_id") or 
+            payload.get("container", {}).get("trigger_id") or
+            getattr(req, 'trigger_id', None)
+        )
+        print(f"🔍 모달 열기 시도: trigger_id={trigger_id}, SLACK_BOT_TOKEN={'있음' if SLACK_BOT_TOKEN else '없음'}")
+        
+        if not trigger_id:
+            print("⚠️  trigger_id가 없습니다. payload를 확인합니다.")
+            print(f"📦 Payload keys: {list(payload.keys())}")
+            print(f"📦 Payload 전체 (처음 2000자): {json.dumps(payload, ensure_ascii=False, indent=2)[:2000]}")
+        
+        if trigger_id and SLACK_BOT_TOKEN:
+            try:
+                web_client = WebClient(token=SLACK_BOT_TOKEN)
+                # channel과 message_ts를 모달에 전달하기 위해 private_metadata에 포함
+                modal = create_resolve_modal(incident_id, incident_key, channel, message_ts)
+                print(f"📝 모달 생성 완료: {json.dumps(modal, ensure_ascii=False)[:200]}...")
+                
+                result = web_client.views_open(
+                    trigger_id=trigger_id,
+                    view=modal
+                )
+                print(f"✅ Resolve 모달 열기 성공: incident_id={incident_id}")
+                
+                # 모달이 열렸으므로 응답만 보내고 종료
+                response = SocketModeResponse(envelope_id=req.envelope_id)
+                client.send_socket_mode_response(response)
+                return
+            except Exception as e:
+                print(f"❌ 모달 열기 실패: {e}")
+                import traceback
+                traceback.print_exc()
+                # 모달 열기 실패 시 기존 방식으로 처리 계속
+        else:
+            print(f"⚠️  모달 열기 조건 불만족: trigger_id={trigger_id}, SLACK_BOT_TOKEN={'있음' if SLACK_BOT_TOKEN else '없음'}")
+    
+    # 모달을 열지 않는 경우에만 응답 보내기
+    response = SocketModeResponse(envelope_id=req.envelope_id)
+    client.send_socket_mode_response(response)
     
     # DB 연결
     conn = get_db_connection()
@@ -373,6 +603,7 @@ def handle_interactive_components(client: SocketModeClient, req: SocketModeReque
                 reply_text = f"❌ *Incident ACK 실패*\n- incident_id: {incident_id}\n- by @{user.get('name', 'unknown')}"
         
         elif action_type == "resolve":
+            # 모달을 열 수 없는 경우 기존 방식으로 처리
             success = resolve_incident(conn, incident_id, user.get("name", user.get("id", "unknown")))
             if success:
                 reply_text = f"✅ *Incident RESOLVED*\n- by @{user.get('name', 'unknown')}\n- at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
