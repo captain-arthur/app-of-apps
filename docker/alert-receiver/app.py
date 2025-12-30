@@ -28,8 +28,7 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN", "")  # Socket Mode용
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")  # Socket Mode에서 메시지 전송용 (선택사항)
-SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN", "")  # Socket Mode용
-SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")  # Socket Mode에서 메시지 전송용 (선택사항)
+SLACK_CHANNEL = os.getenv("SLACK_CHANNEL", "C0A4LAEF6P8")  # 기본 Slack 채널
 
 # Slack 관련 모듈 import (환경 변수 설정 후)
 import slack_sender
@@ -215,9 +214,15 @@ def find_or_create_incident(conn, incident_key: str, alert_info: Dict[str, Any])
 
 
 def send_to_slack(alert_info: Dict[str, Any], incident_id: str, incident_key: str, 
-                  alert_count: int, is_new_incident: bool, start_time: datetime) -> Optional[str]:
+                  alert_count: int, is_new_incident: bool, start_time: datetime, 
+                  incident_info: Optional[Dict[str, Any]] = None,
+                  existing_slack_ts: Optional[str] = None) -> Optional[str]:
     """
     Slack으로 Incident 카드 전송 (Block Kit)
+    
+    Args:
+        incident_info: Incident 정보 (이미 조회한 경우 전달, 없으면 새로 조회)
+        existing_slack_ts: 기존 Incident의 경우 기존 메시지의 ts (신규일 때만 새 메시지 전송)
     
     Returns: Slack 메시지 timestamp (thread_ts) 또는 None
     """
@@ -226,14 +231,27 @@ def send_to_slack(alert_info: Dict[str, Any], incident_id: str, incident_key: st
         print("⚠️  SLACK_WEBHOOK_URL 또는 SLACK_BOT_TOKEN이 설정되지 않았습니다. Slack 전송을 건너뜁니다.")
         return None
     
-    # Incident 정보 조회
-    conn = get_db_connection()
-    try:
-        incident_info = get_incident_info(conn, incident_id)
-        if not incident_info:
-            print(f"⚠️  Incident 정보를 찾을 수 없습니다: {incident_id}")
-            return None
-        
+    # Incident 정보 조회 (없으면 새로 조회)
+    conn = None
+    if not incident_info:
+        conn = get_db_connection()
+        try:
+            incident_info = get_incident_info(conn, incident_id)
+            if not incident_info:
+                print(f"⚠️  Incident 정보를 찾을 수 없습니다: {incident_id}")
+                if conn:
+                    conn.close()
+                return None
+        finally:
+            if conn:
+                conn.close()
+    
+    # 기존 Incident의 경우 새 메시지를 보내지 않고 기존 메시지의 ts 사용
+    if not is_new_incident and existing_slack_ts:
+        print(f"🔄 기존 Incident이므로 새 메시지 전송 건너뜀, 기존 ts 사용: {existing_slack_ts}")
+        ts = existing_slack_ts
+    else:
+        # 신규 Incident인 경우에만 새 메시지 전송
         # Block Kit 카드 생성
         blocks = create_incident_card(
             incident_id=incident_id,
@@ -251,9 +269,11 @@ def send_to_slack(alert_info: Dict[str, Any], incident_id: str, incident_key: st
         
         # Slack 전송
         ts = send_incident_card(blocks)
-        return ts
-    finally:
-        conn.close()
+        print(f"📤 신규 Incident 메시지 전송: ts={ts}")
+    
+    # AI 분석은 버튼 클릭 시에만 실행 (자동 실행 제거)
+    
+    return ts
 
 
 @app.post("/webhook/grafana")
@@ -325,15 +345,37 @@ async def grafana_webhook(request: Request):
                 incident_info = get_incident_info(conn, incident_id)
                 start_time = incident_info["start_time"] if incident_info else datetime.now()
                 
+                # 기존 Incident의 경우 기존 메시지의 ts 조회
+                existing_slack_ts = None
+                if not is_new_incident:
+                    with conn.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT slack_message_ts FROM incidents WHERE incident_id = %s",
+                            (incident_id,)
+                        )
+                        result = cursor.fetchone()
+                        existing_slack_ts = result.get("slack_message_ts") if result else None
+                
                 slack_ts = send_to_slack(
                     alert_info, 
                     incident_id, 
                     incident_key,
                     alert_count, 
                     is_new_incident,
-                    start_time
+                    start_time,
+                    incident_info=incident_info,  # 이미 조회한 정보 전달
+                    existing_slack_ts=existing_slack_ts  # 기존 메시지의 ts
                 )
                 print(f"📤 Slack 전송: ts={slack_ts}")
+                
+                # 신규 Incident인 경우 slack_message_ts 저장
+                if is_new_incident and slack_ts:
+                    with conn.cursor() as cursor:
+                        cursor.execute(
+                            "UPDATE incidents SET slack_message_ts = %s WHERE incident_id = %s",
+                            (slack_ts, incident_id)
+                        )
+                    print(f"💾 Slack message_ts 저장: incident_id={incident_id}, ts={slack_ts}")
                 
                 results.append({
                     "alert_id": alert_id,

@@ -1,5 +1,9 @@
 version: '3.8'
 
+# .env 파일에서 환경 변수 로드
+# .env 파일을 생성하고 SLACK_APP_TOKEN, SLACK_BOT_TOKEN 등을 설정하세요
+# 예: cp .env.example .env
+
 services:
   mysql:
     image: mysql:8.0
@@ -43,6 +47,9 @@ services:
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_CHANNEL: ${SLACK_CHANNEL:-C0A4LAEF6P8}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral}
       GRAFANA_URL: ${GRAFANA_URL:-http://host.docker.internal:32570}
       GRAFANA_USER: ${GRAFANA_USER:-admin}
       GRAFANA_PASSWORD: ${GRAFANA_PASSWORD:-olol1234}

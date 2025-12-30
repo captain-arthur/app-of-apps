@@ -139,6 +139,20 @@ def create_incident_card(incident_id: str, incident_key: str, status: str, sever
                     "type": "button",
                     "text": {
                         "type": "plain_text",
+                        "text": "🤖 AI 분석",
+                        "emoji": True
+                    },
+                    "action_id": "incident_ai_analysis",
+                    "value": json.dumps({
+                        "incident_id": incident_id,
+                        "incident_key": incident_key,
+                        "action": "ai_analysis"
+                    })
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
                         "text": "🔕 Mute 30m",
                         "emoji": True
                     },

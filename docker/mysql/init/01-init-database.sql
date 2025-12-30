@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS incidents (
     action_taken TEXT NULL COMMENT '담당자가 기록한 조치 내용',
     root_cause TEXT NULL COMMENT '문제의 근본 원인',
     resolved_by VARCHAR(255) NULL COMMENT '해결 담당자',
+    slack_message_ts VARCHAR(32) NULL COMMENT 'Slack 메시지 timestamp (스레드 루트 메시지)',
     is_noise BOOLEAN NOT NULL DEFAULT FALSE COMMENT '노이즈 여부',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '레코드 생성 시각',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '레코드 수정 시각',

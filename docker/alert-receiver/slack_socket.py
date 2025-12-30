@@ -303,8 +303,61 @@ def process_incident_action(action_type: str, incident_id: str, incident_key: st
 
 def create_resolve_modal(incident_id: str, incident_key: str, channel: str = None, message_ts: str = None) -> dict:
     """
-    Resolve 모달 생성
+    Resolve 모달 생성 (AI 제안은 나중에 업데이트)
     """
+    # AI 분석은 모달을 먼저 열고 나중에 비동기로 처리
+    # trigger_id가 만료되기 전에 모달을 열어야 함
+    
+    # 모달 블록 구성 (AI 분석 없이 먼저 모달 열기)
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Incident ID:* `{incident_id}`\n*Signature:* `{incident_key}`"
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "input",
+            "block_id": "action_taken",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "action_input",
+                "multiline": True,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "조치 내용을 입력하세요 (예: 서비스 재시작, 설정 변경 등)"
+                }
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "조치 내용"
+            },
+            "optional": True
+        },
+        {
+            "type": "input",
+            "block_id": "root_cause",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "root_cause_input",
+                "multiline": True,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "근본 원인을 입력하세요"
+                }
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "근본 원인"
+            },
+            "optional": True
+        }
+    ]
+    
     return {
         "type": "modal",
         "title": {
@@ -319,54 +372,7 @@ def create_resolve_modal(incident_id: str, incident_key: str, channel: str = Non
             "type": "plain_text",
             "text": "Cancel"
         },
-        "blocks": [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Incident ID:* `{incident_id}`\n*Signature:* `{incident_key}`"
-                }
-            },
-            {
-                "type": "divider"
-            },
-            {
-                "type": "input",
-                "block_id": "action_taken",
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "action_input",
-                    "multiline": True,
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "조치 내용을 입력하세요 (예: 서비스 재시작, 설정 변경 등)"
-                    }
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "조치 내용"
-                },
-                "optional": True
-            },
-            {
-                "type": "input",
-                "block_id": "root_cause",
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "root_cause_input",
-                    "multiline": True,
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "근본 원인을 입력하세요"
-                    }
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "근본 원인"
-                },
-                "optional": True
-            }
-        ],
+        "blocks": blocks,
         "private_metadata": json.dumps({
             "incident_id": incident_id,
             "incident_key": incident_key,
@@ -609,6 +615,133 @@ def handle_interactive_components(client: SocketModeClient, req: SocketModeReque
                 reply_text = f"✅ *Incident RESOLVED*\n- by @{user.get('name', 'unknown')}\n- at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             else:
                 reply_text = f"❌ *Incident Resolve 실패*\n- incident_id: {incident_id}\n- by @{user.get('name', 'unknown')}"
+        
+        elif action_type == "ai_analysis":
+            # AI 분석은 비동기로 처리 (백그라운드 스레드)
+            conn.close()  # DB 연결 종료 (스레드에서 새로 생성)
+            
+            # 즉시 응답 메시지 전송
+            if message_ts and channel:
+                try:
+                    if SLACK_BOT_TOKEN:
+                        web_client = WebClient(token=SLACK_BOT_TOKEN)
+                        web_client.chat_postMessage(
+                            channel=channel,
+                            thread_ts=message_ts,
+                            text="🤖 *AI 분석 시작 중...*"
+                        )
+                        print(f"✅ AI 분석 시작 메시지 전송: incident_id={incident_id}")
+                except Exception as e:
+                    print(f"❌ AI 분석 시작 메시지 전송 실패: {e}")
+            
+            # 백그라운드 스레드에서 AI 분석 실행
+            import threading
+            def ai_analysis_thread():
+                thread_conn = None
+                try:
+                    from incident_ai import analyze_incident
+                    
+                    # 새로운 DB 연결 생성 (스레드 안전)
+                    thread_conn = get_db_connection()
+                    
+                    # Incident 정보 조회
+                    incident_info_thread = get_incident_info(thread_conn, incident_id)
+                    if not incident_info_thread:
+                        print(f"⚠️  AI 분석: Incident 정보를 찾을 수 없습니다: {incident_id}")
+                        if message_ts and channel and SLACK_BOT_TOKEN:
+                            web_client = WebClient(token=SLACK_BOT_TOKEN)
+                            web_client.chat_postMessage(
+                                channel=channel,
+                                thread_ts=message_ts,
+                                text="❌ *AI 분석 실패*\nIncident 정보를 찾을 수 없습니다."
+                            )
+                        return
+                    
+                    # 관련 알람 조회
+                    with thread_conn.cursor() as cursor:
+                        cursor.execute("""
+                            SELECT alertname, message, labels, annotations
+                            FROM grafana_alerts
+                            WHERE incident_id = %s
+                            ORDER BY received_at DESC
+                            LIMIT 10
+                        """, (incident_id,))
+                        alerts = cursor.fetchall()
+                    
+                    # 알람 데이터 포맷팅
+                    formatted_alerts = []
+                    for alert in alerts:
+                        labels = alert.get("labels") or {}
+                        if isinstance(labels, str):
+                            labels = json.loads(labels)
+                        
+                        formatted_alerts.append({
+                            "alertname": alert.get("alertname", ""),
+                            "message": alert.get("message", ""),
+                            "labels": labels,
+                            "annotations": alert.get("annotations", {})
+                        })
+                    
+                    print(f"🤖 AI 분석 시작: incident_id={incident_id}, alerts={len(formatted_alerts)}")
+                    
+                    # AI 분석
+                    analysis = analyze_incident(incident_info_thread, formatted_alerts)
+                    
+                    print(f"🤖 AI 분석 완료: incident_id={incident_id}, suggestion={bool(analysis.get('action_taken_suggestion'))}, root_cause={bool(analysis.get('root_cause_analysis'))}")
+                    
+                    # AI 분석 결과를 스레드에 코멘트로 추가
+                    if analysis.get("action_taken_suggestion") or analysis.get("root_cause_analysis"):
+                        ai_comment = "*🤖 AI 분석 결과*\n\n"
+                        if analysis.get("action_taken_suggestion"):
+                            ai_comment += f"*조치 제안:*\n{analysis.get('action_taken_suggestion')}\n\n"
+                        if analysis.get("root_cause_analysis"):
+                            ai_comment += f"*근본 원인 분석:*\n{analysis.get('root_cause_analysis')}"
+                        
+                        # Slack 스레드에 코멘트 추가
+                        if SLACK_BOT_TOKEN and message_ts and channel:
+                            web_client = WebClient(token=SLACK_BOT_TOKEN)
+                            result = web_client.chat_postMessage(
+                                channel=channel,
+                                thread_ts=message_ts,
+                                text=ai_comment
+                            )
+                            print(f"✅ AI 분석 코멘트 전송 완료: incident_id={incident_id}, channel={channel}, thread_ts={message_ts}, reply_ts={result.get('ts')}")
+                        else:
+                            print(f"⚠️  SLACK_BOT_TOKEN, message_ts, 또는 channel이 없어 AI 코멘트를 전송할 수 없습니다.")
+                    else:
+                        print(f"⚠️  AI 분석 결과가 비어있습니다: incident_id={incident_id}")
+                        if message_ts and channel and SLACK_BOT_TOKEN:
+                            web_client = WebClient(token=SLACK_BOT_TOKEN)
+                            web_client.chat_postMessage(
+                                channel=channel,
+                                thread_ts=message_ts,
+                                text="⚠️ *AI 분석 결과가 비어있습니다.*"
+                            )
+                except Exception as e:
+                    print(f"⚠️  AI 분석 스레드 오류: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    if message_ts and channel and SLACK_BOT_TOKEN:
+                        try:
+                            web_client = WebClient(token=SLACK_BOT_TOKEN)
+                            web_client.chat_postMessage(
+                                channel=channel,
+                                thread_ts=message_ts,
+                                text=f"❌ *AI 분석 오류*\n{e}"
+                            )
+                        except:
+                            pass
+                finally:
+                    if thread_conn:
+                        thread_conn.close()
+            
+            # 백그라운드 스레드로 실행
+            thread = threading.Thread(target=ai_analysis_thread)
+            thread.daemon = True
+            thread.start()
+            print(f"✅ AI 분석 스레드 시작: incident_id={incident_id}")
+            
+            return  # AI 분석은 비동기 처리이므로 여기서 종료
         
         elif action_type.startswith("mute_"):
             # mute_30m, mute_2h, mute_24h
